@@ -218,19 +218,19 @@ All screenshots come from the **simulated demo** (synthetic data, RFC 5737 / pri
 scripts/run-tests.sh             # Autopilot + Traffic Generator offline suites
 scripts/run-tests.sh --browser   # + 41 headless-Chrome UI scenarios against the simulated demo
 ```
-Last recorded results for this publication candidate: 552 Autopilot tests passed, 5 skipped (they need lab-only
+Last recorded results for this publication candidate: 563 Autopilot tests passed, 5 skipped (they need lab-only
 artifacts), 30 Traffic Generator tests passed, and 41/41 browser scenarios passed. No test contacts a lab system. See
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Security considerations
 - No credentials, keys, certificates or device backups are in this repository. Generate your own.
 - The UI defaults to plain HTTP on 127.0.0.1. Use TLS (`TLS_CERTFILE`/`TLS_KEYFILE`) or a TLS proxy before exposing it.
-- The deployer's AS3 policy and host command allow-list are the main safety boundary. Review `deployer/policy.py` for your lab.
+- The deployer's AS3 policy, network allow-lists (`deployer_policy`) and host command allow-list are the main safety boundary. Review them for your lab.
 - Report vulnerabilities as described in [SECURITY.md](SECURITY.md). Details: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Known limitations
-Lab prototype. Single BIG-IP target for deployment. The reference topology is hard-coded in
-`deployer/policy.py`. SQLite with a single host. No SSO. Demo data is synthetic. Full list:
+Lab prototype. Single BIG-IP target for deployment. The 10.50.x networks are a documented example (configurable
+through `autopilot.local.yaml`, including `deployer_policy`). Tenant and `/Common` object names are fixed. SQLite with a single host. No SSO. Demo data is synthetic. Full list:
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ## Troubleshooting

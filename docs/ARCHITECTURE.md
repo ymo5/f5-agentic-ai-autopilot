@@ -128,6 +128,9 @@ Trace summaries are sanitised and stored as bounded JSON files.
 | Agent network | `10.50.10.0/24` | BIG-IP self IP `.10`, VIPs `.100`–`.105`, Agent A `.21`, Agent B `.22` |
 | Backend network | `10.50.20.0/24` | BIG-IP self IP `.10`, MCP `.31/.32/.33`, Qdrant `.40`, S3 `.41`, Ollama `.45`, DNS `.53`, OTel `.63` |
 
-These values appear in `deploy/autopilot/autopilot.example.yaml`, the compose files, the CoreDNS profiles, and
-`app/autopilot/deployer/policy.py` (`VIP_RANGE`, `MEMBER_RANGE`, `HOSTS`). They are reference values. Adapt all of
-them together for another lab.
+These are the **documented example** values. To use your own networks, set them consistently in:
+- `autopilot.local.yaml`: `design`, `enumerate`, `fraud_app`, `validation`, and the optional `deployer_policy`
+  (VIP range, member range, SSH helper host addresses), which the deployer validates fail-closed at start-up;
+- the lab-VM compose files and CoreDNS zone profiles under `deploy/`.
+
+The tenant name (`AP_AI`) and the `/Common` object names remain fixed in `deployer/policy.py`.

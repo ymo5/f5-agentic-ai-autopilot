@@ -5,9 +5,9 @@
   review, and is not an F5 product.
 - **One BIG-IP deployment target.** The placement advisory can reason about several devices, but the deployer deploys
   only to the device in `observe.bigip_mgmt`. There is no HA / device-group awareness for deployment.
-- **Reference topology in code.** `app/autopilot/deployer/policy.py` pins the tenant (`AP_AI`), VIP/member ranges, the
-  lab host names and addresses, and `/Common` object names. Templates assume BIG-IP **21.1** and AS3 **≥ 3.56**. Other
-  topologies need code and config changes.
+- **Partly fixed topology.** Networks (VIP range, member range, helper host addresses) are configurable through
+  `deployer_policy`. The tenant (`AP_AI`), the three host roles and the `/Common` object names are fixed in
+  `app/autopilot/deployer/policy.py`. Templates assume BIG-IP **21.1** and AS3 **≥ 3.56**.
 - **Templates target the reference application:** A2A + MCP agents, Qdrant, S3 (SeaweedFS), Ollama. Other AI stacks are
   discovered generically but may not produce packages.
 - **SQLite, single host.** No clustering. Concurrency is limited to one deployment at a time.

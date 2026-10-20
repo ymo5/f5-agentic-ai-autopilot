@@ -4,8 +4,8 @@
 #   management LAN   192.0.2.0/24   (RFC 5737 documentation range used here as a placeholder)
 #   agent network    10.50.10.0/24  (isolated, no uplink)  — BIG-IP self IP .10, VIPs .100-.105
 #   backend network  10.50.20.0/24  (isolated, no uplink)  — MCP servers, Qdrant, S3, Ollama, DNS
-# The deployer additionally pins the allowed VIP / member ranges and host addresses in app/autopilot/deployer/policy.py
-# (VIP_RANGE, MEMBER_RANGE, HOSTS). Change those together with this file for a different topology.
+# The deployer enforces its own allow-lists for VIPs, pool members and SSH helper hosts. Defaults = the reference
+# topology; override them for YOUR networks in the `deployer_policy:` section at the end of this file.
 # Contains no credentials. Device credentials live in the deployer secrets directory only.
 observe:
   bigip_mgmt: 192.0.2.16
@@ -94,3 +94,7 @@ fraud_app:                # customer fraud application (Phase 1 experience) — 
     - {id: jaeger, name: "Trace store (Jaeger)", url: "http://192.0.2.63:16686/api/services", role: observability}
 # lab_policy:             # LAB-ONLY override. Absent = default behaviour (recommended).
 #   swap_informational_devices: ["192.0.2.16"]   # swap % is reported but never a pass/fail/warn criterion for this device
+# deployer_policy:        # OPTIONAL — deployer safety allow-lists (defaults shown). Must match `design` above.
+#   vip_range: 10.50.10.96/28           # private IPv4, /16 or smaller; every VIP must fall inside
+#   member_range: 10.50.20.0/24         # private IPv4, /16 or smaller, must not overlap vip_range
+#   hosts: {ap-ai-services: 192.0.2.63, ap-agent-b: 192.0.2.62, ap-agent-a: 192.0.2.61}   # exactly these three roles

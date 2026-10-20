@@ -100,8 +100,9 @@ The project was developed on this topology. Replace every address with yours, co
    `agent-b`, `ap-validator` (and `ap-unauthorized` for negative tests). Place the CA bundle and validator identities
    in `${APLAB_PKI}`. No PKI material ships with this repository.
 5. **Autopilot host:** Tier B, plus the deployer credential files and the window broker.
-6. **Adapt the deployer policy:** `app/autopilot/deployer/policy.py` (`VIP_RANGE`, `MEMBER_RANGE`, `HOSTS`,
-   `BIGIP_REFS`) must match your lab.
+6. **Adapt the deployer allow-lists** to your networks with `deployer_policy` in `autopilot.local.yaml` (VIP range,
+   member range, SSH helper hosts; validated at start-up). The tenant (`AP_AI`) and `/Common` object names
+   (`BIGIP_REFS`) are fixed in `app/autopilot/deployer/policy.py`.
 
 ## Upgrade
 1. `cd /opt/aplab/src && git pull` (review the changes first).

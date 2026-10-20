@@ -13,10 +13,50 @@ CLASSES = {"Application", "Service_HTTPS", "Service_HTTP", "Pool", "Monitor", "i
            "Certificate", "HTTP_Profile", "TCP_Profile", "Statistics_Profile"}   # Statistics_Profile: S3 request telemetry (observe-only)
 BIGIP_REFS = {"/Common/universal", "/Common/aplab-wildcard.crt", "/Common/aplab-wildcard.key", "/Common/aplab-ca.crt",
               "/Common/vlan_agent", "/Common/vlan_backend"}   # AI Data Delivery: allowVlans (isolated lab VLANs only)
-VIP_RANGE = ipaddress.ip_network("10.50.10.96/28")          # 10.50.10.96-111 (VIPs .100-.103)
-MEMBER_RANGE = ipaddress.ip_network("10.50.20.0/24")
 HOST_COMMANDS = re.compile(r"^(status( fingerprint)?|profile (baseline|delivery|security)|replica (stop|start) [12]|probe direct-mcp)$")
-HOSTS = {"ap-ai-services": "192.0.2.63", "ap-agent-b": "192.0.2.62", "ap-agent-a": "192.0.2.61"}
+
+# Network allow-lists. Defaults = the documented reference lab topology. An installation may override them in the
+# Autopilot configuration (AUTOPILOT_CONFIG) under `deployer_policy:`:
+#   deployer_policy:
+#     vip_range: 10.50.10.96/28          # every VIP the deployer may create must be inside this network
+#     member_range: 10.50.20.0/24        # every pool member must be inside this network
+#     hosts: {ap-ai-services: 192.0.2.63, ap-agent-b: 192.0.2.62, ap-agent-a: 192.0.2.61}   # SSH helper targets
+# Validation is fail-closed: an invalid section stops the deployer/web at import time instead of widening the policy.
+DEFAULT_VIP_RANGE = "10.50.10.96/28"          # 10.50.10.96-111 (VIPs .100-.105)
+DEFAULT_MEMBER_RANGE = "10.50.20.0/24"
+DEFAULT_HOSTS = {"ap-ai-services": "192.0.2.63", "ap-agent-b": "192.0.2.62", "ap-agent-a": "192.0.2.61"}
+
+
+def load_network_policy(cfg: dict | None) -> tuple:
+    """(vip_range, member_range, hosts) from cfg['deployer_policy'] or the defaults. Raises ValueError when invalid."""
+    dp = (cfg or {}).get("deployer_policy") or {}
+    if not isinstance(dp, dict) or set(dp) - {"vip_range", "member_range", "hosts"}:
+        raise ValueError("deployer_policy accepts only vip_range, member_range and hosts")
+    vip = ipaddress.ip_network(str(dp.get("vip_range", DEFAULT_VIP_RANGE)), strict=True)
+    mem = ipaddress.ip_network(str(dp.get("member_range", DEFAULT_MEMBER_RANGE)), strict=True)
+    for name, net in (("vip_range", vip), ("member_range", mem)):
+        if net.version != 4 or not net.is_private or net.prefixlen < 16:
+            raise ValueError(f"deployer_policy.{name} must be a private IPv4 network of /16 or smaller")
+    if vip.overlaps(mem):
+        raise ValueError("deployer_policy.vip_range and member_range must not overlap")
+    hosts = dp.get("hosts", DEFAULT_HOSTS)
+    if not isinstance(hosts, dict) or set(hosts) != set(DEFAULT_HOSTS):
+        raise ValueError(f"deployer_policy.hosts must define exactly {sorted(DEFAULT_HOSTS)}")
+    hosts = {k: str(ipaddress.ip_address(str(v))) for k, v in hosts.items()}
+    return vip, mem, hosts
+
+
+def _config() -> dict | None:
+    import os
+    path = os.environ.get("AUTOPILOT_CONFIG")
+    if not path or not os.path.exists(path):
+        return None
+    import yaml
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+VIP_RANGE, MEMBER_RANGE, HOSTS = load_network_policy(_config())
 
 
 class PolicyViolation(Exception):

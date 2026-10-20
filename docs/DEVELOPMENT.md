@@ -12,7 +12,7 @@ scripts/run-tests.sh --browser  # + headless-Chrome UI regression suite (Node â‰
 ```
 | Suite | Command | Result for this publication candidate (2026-10-20) |
 |---|---|---|
-| Autopilot unit/integration | `cd app && python -m pytest -q tests` | 552 passed, 5 skipped |
+| Autopilot unit/integration | `cd app && python -m pytest -q tests` | 563 passed, 5 skipped |
 | Traffic Generator | `cd traffic-generator/simulator && python -m pytest -q tests_offline` | 30 passed |
 | Browser (41 scenarios) | `AP_PYTHON=.venv-dev/bin/python node devtools/browser/run.mjs` | 41/41 passed |
 

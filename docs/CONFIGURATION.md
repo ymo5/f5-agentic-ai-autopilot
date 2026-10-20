@@ -72,10 +72,10 @@ Start from `autopilot.example.yaml`. Its sections:
 | `convergence` | Post-change readiness barrier timing |
 | `validation` | Agent endpoints used by validation; `data.s3_credentials_env` for an optional read-only S3 check |
 | `fraud_app` | Demo application endpoints and health checks |
+| `deployer_policy` | Optional: the deployer's VIP range, pool-member range and SSH helper host addresses. Defaults are the reference topology. Private IPv4 only, /16 or smaller, ranges must not overlap, exactly the three host roles. An invalid section stops start-up (fail-closed) |
 | `lab_policy` | Optional lab-only overrides (commented out in the template) |
 
-Keep `design` consistent with `app/autopilot/deployer/policy.py`. The deployer refuses VIPs and members outside its
-configured ranges.
+Keep `design` consistent with `deployer_policy`. The deployer refuses VIPs and members outside those ranges.
 
 ## Observe collector (operator workstation, macOS)
 `scripts/observe-collect.sh` performs read-only BIG-IP REST GETs over pinned TLS and writes a redacted snapshot. It
