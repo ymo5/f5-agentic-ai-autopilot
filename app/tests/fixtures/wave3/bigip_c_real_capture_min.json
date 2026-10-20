@@ -1,0 +1,590 @@
+{
+ "_meta": {
+  "collected_at": 1792032849.457,
+  "collector": "observe-collect.sh/2.1",
+  "device": {
+   "label": "BIG-IP_C",
+   "mgmt": "192.0.2.16"
+  },
+  "redaction": "secret-named fields, auth headers, iRule source, monitor send/recv",
+  "timings_s": {
+   "as3": 0.794,
+   "clientssl": 0.114,
+   "cpu": 0.101,
+   "device_group": 0.093,
+   "failover_status": 0.105,
+   "global": 0.096,
+   "log_destination": 0.096,
+   "memory": 0.161,
+   "monitor_http": 0.096,
+   "monitor_https": 0.099,
+   "persistence_universal": 0.095,
+   "pool": 0.093,
+   "pool_stats": 1.191,
+   "provision": 0.386,
+   "route": 0.129,
+   "rule": 0.128,
+   "self": 0.197,
+   "version": 0.199,
+   "virtual": 0.165,
+   "virtual_stats": 0.149,
+   "vlan": 0.129
+  }
+ },
+ "as3": {
+  "body": {
+   "release": "10",
+   "schemaCurrent": "3.56.0",
+   "version": "3.56.0"
+  },
+  "status": 200
+ },
+ "cpu": {
+  "body": {
+   "entries": {
+    "https://localhost/mgmt/tm/sys/cpu/0": {
+     "nestedStats": {
+      "entries": {
+       "hostId": {
+        "description": "0"
+       },
+       "https://localhost/mgmt/tm/sys/cpu/0/cpuInfo": {
+        "nestedStats": {
+         "entries": {
+          "https://localhost/mgmt/tm/sys/cpu/0/cpuInfo/0": {
+           "nestedStats": {
+            "entries": {
+             "cpuId": {
+              "value": 0
+             },
+             "fiveMinAvgIdle": {
+              "value": 90
+             },
+             "fiveSecAvgIdle": {
+              "value": 80
+             },
+             "idle": {
+              "value": 10585857
+             },
+             "oneMinAvgIdle": {
+              "value": 89
+             }
+            }
+           }
+          },
+          "https://localhost/mgmt/tm/sys/cpu/0/cpuInfo/1": {
+           "nestedStats": {
+            "entries": {
+             "cpuId": {
+              "value": 1
+             },
+             "fiveMinAvgIdle": {
+              "value": 90
+             },
+             "fiveSecAvgIdle": {
+              "value": 81
+             },
+             "idle": {
+              "value": 10560846
+             },
+             "oneMinAvgIdle": {
+              "value": 89
+             }
+            }
+           }
+          },
+          "https://localhost/mgmt/tm/sys/cpu/0/cpuInfo/2": {
+           "nestedStats": {
+            "entries": {
+             "cpuId": {
+              "value": 2
+             },
+             "fiveMinAvgIdle": {
+              "value": 90
+             },
+             "fiveSecAvgIdle": {
+              "value": 84
+             },
+             "idle": {
+              "value": 10547290
+             },
+             "oneMinAvgIdle": {
+              "value": 90
+             }
+            }
+           }
+          },
+          "https://localhost/mgmt/tm/sys/cpu/0/cpuInfo/3": {
+           "nestedStats": {
+            "entries": {
+             "cpuId": {
+              "value": 3
+             },
+             "fiveMinAvgIdle": {
+              "value": 90
+             },
+             "fiveSecAvgIdle": {
+              "value": 80
+             },
+             "idle": {
+              "value": 10552126
+             },
+             "oneMinAvgIdle": {
+              "value": 90
+             }
+            }
+           }
+          }
+         }
+        }
+       }
+      },
+      "kind": "tm:sys:cpu:cpustats",
+      "selfLink": "https://localhost/mgmt/tm/sys/cpu/0?ver=21.1.0.3"
+     }
+    }
+   },
+   "kind": "tm:sys:cpu:cpucollectionstats",
+   "selfLink": "https://localhost/mgmt/tm/sys/cpu?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "device_group": {
+  "body": {
+   "items": [
+    {
+     "asmSync": "disabled",
+     "autoSync": "enabled",
+     "devicesReference": {
+      "isSubcollection": true,
+      "items": [
+       {
+        "fullPath": "/Common/big-ip.c",
+        "generation": 1,
+        "kind": "tm:cm:device-group:devices:devicesstate",
+        "name": "big-ip.c",
+        "nameReference": {
+         "link": "https://localhost/mgmt/tm/cm/device/~Common~big-ip.c?ver=21.1.0.3"
+        },
+        "partition": "Common",
+        "selfLink": "https://localhost/mgmt/tm/cm/device-group/~Common~device_trust_group/devices/~Common~big-ip.c?ver=21.1.0.3"
+       }
+      ],
+      "link": "https://localhost/mgmt/tm/cm/device-group/~Common~device_trust_group/devices?ver=21.1.0.3"
+     },
+     "fullLoadOnSync": "false",
+     "fullPath": "/Common/device_trust_group",
+     "generation": 1,
+     "incrementalConfigSyncSizeMax": 1024,
+     "kind": "tm:cm:device-group:device-groupstate",
+     "name": "device_trust_group",
+     "networkFailover": "disabled",
+     "partition": "Common",
+     "saveOnAutoSync": "false",
+     "selfLink": "https://localhost/mgmt/tm/cm/device-group/~Common~device_trust_group?ver=21.1.0.3",
+     "type": "sync-only"
+    },
+    {
+     "asmSync": "disabled",
+     "autoSync": "disabled",
+     "devicesReference": {
+      "isSubcollection": true,
+      "items": [
+       {
+        "fullPath": "/Common/big-ip.c",
+        "generation": 1,
+        "kind": "tm:cm:device-group:devices:devicesstate",
+        "name": "big-ip.c",
+        "nameReference": {
+         "link": "https://localhost/mgmt/tm/cm/device/~Common~big-ip.c?ver=21.1.0.3"
+        },
+        "partition": "Common",
+        "selfLink": "https://localhost/mgmt/tm/cm/device-group/~Common~gtm/devices/~Common~big-ip.c?ver=21.1.0.3"
+       }
+      ],
+      "link": "https://localhost/mgmt/tm/cm/device-group/~Common~gtm/devices?ver=21.1.0.3"
+     },
+     "fullLoadOnSync": "false",
+     "fullPath": "/Common/gtm",
+     "generation": 1,
+     "incrementalConfigSyncSizeMax": 1024,
+     "kind": "tm:cm:device-group:device-groupstate",
+     "name": "gtm",
+     "networkFailover": "disabled",
+     "partition": "Common",
+     "saveOnAutoSync": "false",
+     "selfLink": "https://localhost/mgmt/tm/cm/device-group/~Common~gtm?ver=21.1.0.3",
+     "type": "sync-only"
+    }
+   ],
+   "kind": "tm:cm:device-group:device-groupcollectionstate",
+   "selfLink": "https://localhost/mgmt/tm/cm/device-group?expandSubcollections=true&ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "failover_status": {
+  "body": {
+   "entries": {
+    "https://localhost/mgmt/tm/cm/failover-status/0": {
+     "nestedStats": {
+      "entries": {
+       "color": {
+        "description": "green"
+       },
+       "https://localhost/mgmt/tm/cm/failoverStatus/0/details": {
+        "nestedStats": {
+         "entries": {
+          "https://localhost/mgmt/tm/cm/failoverStatus/0/details/0": {
+           "nestedStats": {
+            "entries": {
+             "details": {
+              "description": "active for /Common/traffic-group-1"
+             }
+            }
+           }
+          }
+         }
+        }
+       },
+       "status": {
+        "description": "ACTIVE"
+       },
+       "summary": {
+        "description": "1/1 active"
+       }
+      }
+     }
+    }
+   },
+   "kind": "tm:cm:failover-status:failover-statusstats",
+   "selfLink": "https://localhost/mgmt/tm/cm/failover-status?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "memory": {
+  "body": {
+   "entries": {
+    "https://localhost/mgmt/tm/sys/memory/memory-host": {
+     "nestedStats": {
+      "entries": {
+       "https://localhost/mgmt/tm/sys/memory/memory-host/0": {
+        "nestedStats": {
+         "entries": {
+          "hostId": {
+           "description": "0"
+          },
+          "memoryFree": {
+           "value": 5599344680
+          },
+          "memoryTotal": {
+           "value": 8372699136
+          },
+          "memoryUsed": {
+           "value": 2773354456
+          },
+          "otherMemoryFree": {
+           "value": 748785664
+          },
+          "otherMemoryTotal": {
+           "value": 2991407104
+          },
+          "otherMemoryUsed": {
+           "value": 2242621440
+          },
+          "swapFree": {
+           "value": 93618176
+          },
+          "swapTotal": {
+           "value": 1048571904
+          },
+          "swapUsed": {
+           "value": 954953728
+          },
+          "tmmMemoryFree": {
+           "value": 4850559016
+          },
+          "tmmMemoryTotal": {
+           "value": 5381292032
+          },
+          "tmmMemoryUsed": {
+           "value": 530733016
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "kind": "tm:sys:memory:memorystats",
+   "selfLink": "https://localhost/mgmt/tm/sys/memory?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "provision": {
+  "body": {
+   "items": [
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "afm",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "afm",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/afm?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "apm",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "apm",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/apm?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "asm",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "asm",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/asm?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "avr",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "avr",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/avr?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "cgnat",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "cgnat",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/cgnat?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "dos",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "dos",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/dos?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "fps",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "fps",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/fps?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "gtm",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "gtm",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/gtm?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "ilx",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "ilx",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/ilx?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "lc",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "lc",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/lc?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "ltm",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "nominal",
+     "memoryRatio": 0,
+     "name": "ltm",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/ltm?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "pem",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "pem",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/pem?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "sslo",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "sslo",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/sslo?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "swg",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "swg",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/swg?ver=21.1.0.3"
+    },
+    {
+     "cpuRatio": 0,
+     "diskRatio": 0,
+     "fullPath": "urldb",
+     "generation": 1,
+     "kind": "tm:sys:provision:provisionstate",
+     "level": "none",
+     "memoryRatio": 0,
+     "name": "urldb",
+     "selfLink": "https://localhost/mgmt/tm/sys/provision/urldb?ver=21.1.0.3"
+    }
+   ],
+   "kind": "tm:sys:provision:provisioncollectionstate",
+   "selfLink": "https://localhost/mgmt/tm/sys/provision?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "route": {
+  "body": {
+   "items": [],
+   "kind": "tm:net:route:routecollectionstate",
+   "selfLink": "https://localhost/mgmt/tm/net/route?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "self": {
+  "body": {
+   "items": [
+    {
+     "address": "10.50.20.10/24",
+     "addressSource": "from-user",
+     "floating": "disabled",
+     "fullPath": "/Common/self_backend",
+     "generation": 1,
+     "inheritedTrafficGroup": "false",
+     "kind": "tm:net:self:selfstate",
+     "name": "self_backend",
+     "partition": "Common",
+     "selfLink": "https://localhost/mgmt/tm/net/self/~Common~self_backend?ver=21.1.0.3",
+     "trafficGroup": "/Common/traffic-group-local-only",
+     "trafficGroupReference": {
+      "link": "https://localhost/mgmt/tm/cm/traffic-group/~Common~traffic-group-local-only?ver=21.1.0.3"
+     },
+     "unit": 0,
+     "vlan": "/Common/vlan_backend",
+     "vlanReference": {
+      "link": "https://localhost/mgmt/tm/net/vlan/~Common~vlan_backend?ver=21.1.0.3"
+     }
+    },
+    {
+     "address": "10.50.10.10/24",
+     "addressSource": "from-user",
+     "floating": "disabled",
+     "fullPath": "/Common/self_agent",
+     "generation": 1,
+     "inheritedTrafficGroup": "false",
+     "kind": "tm:net:self:selfstate",
+     "name": "self_agent",
+     "partition": "Common",
+     "selfLink": "https://localhost/mgmt/tm/net/self/~Common~self_agent?ver=21.1.0.3",
+     "trafficGroup": "/Common/traffic-group-local-only",
+     "trafficGroupReference": {
+      "link": "https://localhost/mgmt/tm/cm/traffic-group/~Common~traffic-group-local-only?ver=21.1.0.3"
+     },
+     "unit": 0,
+     "vlan": "/Common/vlan_agent",
+     "vlanReference": {
+      "link": "https://localhost/mgmt/tm/net/vlan/~Common~vlan_agent?ver=21.1.0.3"
+     }
+    }
+   ],
+   "kind": "tm:net:self:selfcollectionstate",
+   "selfLink": "https://localhost/mgmt/tm/net/self?ver=21.1.0.3"
+  },
+  "status": 200
+ },
+ "version": {
+  "body": {
+   "entries": {
+    "https://localhost/mgmt/tm/sys/version/0": {
+     "nestedStats": {
+      "entries": {
+       "Build": {
+        "description": "0.0.20"
+       },
+       "Date": {
+        "description": "Fri Oct  9 05:34:20 PDT 2026"
+       },
+       "Edition": {
+        "description": "Point Release 3"
+       },
+       "Product": {
+        "description": "BIG-IP"
+       },
+       "Title": {
+        "description": "Main Package"
+       },
+       "Version": {
+        "description": "21.1.0.3"
+       }
+      }
+     }
+    }
+   },
+   "kind": "tm:sys:version:versionstats",
+   "selfLink": "https://localhost/mgmt/tm/sys/version?ver=21.1.0.3"
+  },
+  "status": 200
+ }
+}

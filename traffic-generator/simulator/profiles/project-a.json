@@ -1,0 +1,64 @@
+{
+  "_comment": "Environment profile: Project A, F5 Agentic AI Autopilot. Not editable from the Control Center UI. Destinations must be pinned in sim_profiles.APPROVED['project-a']. No secret values here: TLS material and S3 credentials are referenced by ENVIRONMENT VARIABLE NAME only.",
+  "environment": "project-a",
+  "label": "Project A · Agentic AI Autopilot (BIG-IP_C)",
+  "summary": "Fraud-investigation agents (A2A + MCP) delivered and secured by BIG-IP_C (tenant AP_AI).",
+  "network": "BIG-IP_C VIPs live on the isolated agent network 10.50.10.0/24 (no uplink). Workloads that call VIPs must run on a host attached to that network; the Mac reaches only the management LAN 192.0.2.0/24. Project A and Project B networks are never connected.",
+  "frozen": false,
+  "tls": {
+    "ca_file_env": "F5SIM_PA_CA_FILE",
+    "client_identity": {
+      "cn": "ap-traffic-sim",
+      "cert_file_env": "F5SIM_PA_CLIENT_CERT",
+      "key_file_env": "F5SIM_PA_CLIENT_KEY",
+      "provisioned": false,
+      "required_allowlist": ["list_open_alerts", "model_info", "score_transaction"],
+      "note": "Dedicated simulator identity (certificate CN). Not provisioned: needs (1) a client certificate signed by the lab CA and (2) an Autopilot validation_identities entry followed by a Security-package redeploy through the Autopilot approval workflow. The validator identity ap-validator must not be reused: it shares the 120 req/min per-identity window that Autopilot's security.rate_limited test consumes."
+    }
+  },
+  "destinations": {
+    "A2A_VIP":       {"status": "configured", "address": "10.50.10.100:443", "scheme": "https", "server_name": "agent-b.aplab.internal", "path": "/", "via_bigip": true, "auth": "tls", "bigip_object": "/AP_AI/a2a_risk_assessment_agent/service", "note": "Server TLS only (no client certificate). Agent A calls it during investigations; pa_a2a_card performs A2A discovery through it."},
+    "MCP_RISK_VIP":  {"status": "configured", "address": "10.50.10.101:443", "scheme": "https", "server_name": "mcp-risk.aplab.internal", "path": "/mcp", "via_bigip": true, "auth": "mtls", "bigip_object": "/AP_AI/mcp_risk_scoring/service", "note": "2 replicas, least-connections, Mcp-Session-Id persistence; AI Security policy iRule (identity allow-list, 120 req/min per identity)."},
+    "MCP_INTEL_VIP": {"status": "configured", "address": "10.50.10.102:443", "scheme": "https", "server_name": "mcp-intel.aplab.internal", "path": "/mcp", "via_bigip": true, "auth": "mtls", "bigip_object": "/AP_AI/mcp_fraud_intel/service"},
+    "AGENT_A_API":   {"status": "configured", "address": "192.0.2.61:8080", "scheme": "http", "path": "/", "via_bigip": false, "auth": "none", "note": "Entry point only. Agent A then calls Agent B through A2A_VIP and Agent B calls the MCP VIPs; the investigation result's card_url proves whether the BIG-IP front door was used."},
+    "AUTOPILOT_UI":  {"status": "configured", "address": "192.0.2.60:8000", "scheme": "http", "path": "/", "via_bigip": false, "auth": "none", "note": "Reachability only (GET /)."},
+    "S3_VIP":        {"status": "configured", "address": "10.50.10.103:8333", "scheme": "http", "via_bigip": true, "auth": "s3-sigv4", "bigip_object": "/AP_AI/s3_seaweedfs/service", "note": "AI Data Delivery (deployment f7c281be): http_ai + stats_s3 (signed/unsigned, 2xx/4xx, bytes), pool SeaweedFS 10.50.20.41:8333, SNAT automap. Reads are SigV4-signed with credentials from the environment."},
+    "RAG_VIP":       {"status": "configured", "address": "10.50.10.104:6333", "scheme": "http", "via_bigip": true, "auth": "none", "bigip_object": "/AP_AI/rag_qdrant/service", "note": "AI Data Delivery: pool Qdrant 10.50.20.40:6333. Read-only collection info and points/query only."},
+    "INFERENCE_VIP": {"status": "configured", "address": "10.50.10.105:11434", "scheme": "http", "via_bigip": true, "auth": "none", "bigip_object": "/AP_AI/llm_ollama/service", "note": "AI Data Delivery: pool Ollama 10.50.20.45:11434 (single CPU inference host shared with Agent B and fraud-intel). Embeddings and small chat completions only; guarded by activity_guard."}
+  },
+  "allowed_operations": {
+    "mcp_methods": ["initialize", "notifications/initialized", "tools/list", "tools/call", "server/discover"],
+    "mcp_tools": ["list_open_alerts", "model_info", "score_transaction"],
+    "mcp_deny_probe_tools": ["freeze_account"],
+    "http": {"AGENT_A_API": ["GET /healthz", "GET /api/alerts", "POST /api/investigate", "GET /api/investigations"], "AUTOPILOT_UI": ["GET /"],
+             "INFERENCE_VIP": ["POST /api/embed", "POST /v1/chat/completions"], "A2A_VIP": ["GET /.well-known/agent-card.json"]},
+    "s3": ["HeadObject", "GetObject", "ListObjectsV2"],
+    "qdrant": ["GET /collections/{collection}", "POST /collections/{collection}/points/query"]
+  },
+  "activity_guard": {"destination": "AGENT_A_API", "path": "/api/investigations?limit=5", "quiet_s": 600, "_note": "LLM workloads (defer_while_investigating) skip a run while the fraud application is in use: the most recent investigation finished < quiet_s ago, or Agent A cannot be read (fail closed). Agent A records an investigation when it finishes, so a single in-flight investigation is not visible; the overlap is bounded by max_tokens and the hourly caps."},
+  "budgets": {"max_requests_per_minute_cap": 20, "note": "Per-instance per-minute budgets below; per-workload hourly caps on each workload. BIG-IP_C rate limit is 120 req/min per identity; the simulator stays far below it."},
+  "instances": {
+    "pa_lab": {"label": "Project A traffic generator (AP-AUTOPILOT-01 container)", "host_label": "pa-lab", "telemetry_url": null, "status_file": "state/status-pa-lab.json", "max_requests_per_minute": 10, "deployed": false, "placement": "Isolated container ap-trafficgen on AP-AUTOPILOT-01 (agent0 10.50.10.5 on-link to the VIPs; management 192.0.2.60 reaches Agent A). The host also has backend0 10.50.20.5: direct backend access is refused by the pinned allow-list (FORBIDDEN_DIRECT), never by routing. Not deployed (Phase 2 is offline)."},
+    "pa_mac": {"label": "Mac (management LAN)", "host_label": "pa-mac", "telemetry_url": null, "status_file": "state/status-pa-mac.json", "max_requests_per_minute": 6, "deployed": false, "placement": "This Mac; reaches Agent A and Autopilot on 192.0.2.0/24 only (Project A launchd job not installed)."}
+  },
+  "workloads": {
+    "pa_mcp_delivery":        {"kind": "mcp_session", "instance": "pa_lab", "enabled": false, "interval_s": 120, "jitter": 0.3, "max_per_hour": 30, "destinations": ["MCP_RISK_VIP", "MCP_INTEL_VIP"], "protocol": "legacy", "tools": {"MCP_RISK_VIP": "model_info", "MCP_INTEL_VIP": "list_open_alerts"}, "requires_identity": true, "_note": "One MCP session per run on one VIP: initialize (version negotiation) -> notifications/initialized -> tools/list -> one read-only tools/call -> session DELETE."},
+    "pa_mcp_authz":           {"kind": "mcp_identity_authz", "instance": "pa_lab", "enabled": false, "interval_s": 300, "jitter": 0.3, "max_per_hour": 12, "destination": "MCP_RISK_VIP", "allowed_tool": "model_info", "deny_probe_tool": "freeze_account", "deny_every_n": 5, "unauthenticated_every_n": 10, "requires_identity": true, "_note": "Deny probe targets MCP_RISK_VIP, whose server does not implement freeze_account: even if the policy failed open nothing could change. Unauthenticated probe = no client certificate (TLS rejection or 401 expected)."},
+    "pa_mcp_rate_burst":      {"kind": "mcp_rate_burst", "instance": "pa_lab", "status": "not_supported", "reason": "BIG-IP_C allows 120 requests/min per identity. Proving the limit needs at least 121 requests inside one calendar minute, above the simulator's hard budget of 60/min. Autopilot Validate (security.rate_limited) already proves it with its own identity."},
+    "pa_agent_investigation": {"kind": "agent_investigation", "instance": "pa_mac", "enabled": false, "interval_s": 900, "jitter": 0.2, "max_per_hour": 4, "destination": "AGENT_A_API", "expect_front_door": "agent-b.aplab.internal", "timeout_s": 300, "_note": "Disabled by default: each run creates an investigation record in Agent A and drives LLM work (owner guidance: at most 5 investigations per minute)."},
+    "pa_vector_query":        {"kind": "qdrant_query", "instance": "pa_lab", "interval_s": 180, "jitter": 0.3, "max_per_hour": 20, "destination": "RAG_VIP", "collection": "fraud_patterns", "neighbours_of": [1, 2, 3, 4, 5], "limit": 3},
+    "pa_s3_case_read":        {"kind": "s3_object_read", "instance": "pa_lab", "enabled": false, "interval_s": 600, "jitter": 0.2, "max_per_hour": 6, "destination": "S3_VIP", "bucket": "case-files", "prefix": "CASE-", "objects_per_run": 2, "max_object_bytes": 1048576, "credentials_env": {"access_key_id": "F5SIM_PA_S3_ACCESS_KEY_ID", "secret_access_key": "F5SIM_PA_S3_SECRET_ACCESS_KEY"}},
+    "pa_training_data_read":  {"kind": "training_data_read", "instance": "pa_lab", "enabled": false, "interval_s": 600, "jitter": 0.2, "max_per_hour": 6, "destination": "S3_VIP", "bucket": "ai-training-data", "dataset_prefixes": ["fraud-model/synthetic-v1/"], "objects_per_run": 3, "max_object_bytes": 8388608, "artifact_keys": [], "credentials_env": {"access_key_id": "F5SIM_PA_S3_ACCESS_KEY_ID", "secret_access_key": "F5SIM_PA_S3_SECRET_ACCESS_KEY"}, "_note": "Disabled: bucket and synthetic shards do not exist yet (Phase 3 seed)."},
+    "pa_llm_inference":       {"kind": "ollama_inference", "instance": "pa_lab", "enabled": false, "interval_s": 300, "jitter": 0.2, "max_per_hour": 10, "destination": "INFERENCE_VIP", "model": "qwen2.5:3b", "num_predict": 32, "_note": "Disabled: superseded by pa_chat_small (the OpenAI-compatible call Agent B makes, activity-guarded, smaller cap)."},
+    "pa_a2a_card":            {"kind": "a2a_card", "instance": "pa_lab", "interval_s": 120, "jitter": 0.3, "max_per_hour": 30, "destination": "A2A_VIP", "expect_front_door": "agent-b.aplab.internal", "_note": "A2A discovery through the A2A VIP (verified TLS, no client certificate). Creates no task and no LLM work."},
+    "pa_embed":               {"kind": "ollama_embed", "instance": "pa_lab", "interval_s": 300, "jitter": 0.3, "max_per_hour": 12, "destination": "INFERENCE_VIP", "model": "nomic-embed-text", "expected_dims": 768, "timeout_s": 30, "defer_while_investigating": true},
+    "pa_chat_small":          {"kind": "chat_completion", "instance": "pa_lab", "enabled": false, "interval_s": 900, "jitter": 0.2, "max_per_hour": 4, "destination": "INFERENCE_VIP", "model": "qwen2.5:3b", "max_tokens": 16, "timeout_s": 90, "defer_while_investigating": true, "_note": "Disabled in the initial profile (owner decision): run only on explicit selection (--only pa_chat_small). Same model as Agent B (already loaded: no model swap). 16 tokens max, non-streaming, at most 4 per hour."},
+    "pa_health":              {"kind": "health", "instance": "pa_mac", "interval_s": 300, "jitter": 0.2, "max_per_hour": 12, "destinations": ["AUTOPILOT_UI", "AGENT_A_API"], "paths": {"AUTOPILOT_UI": "/", "AGENT_A_API": "/healthz"}}
+  },
+  "telemetry": {"collector": null, "note": "Project A has no simulator telemetry collector yet: results go to the status file and the run log only. BIG-IP_C counters are read by Autopilot through the deployer."},
+  "metric_sources": {
+    "simulator": "Measured by the simulator client (status file + run log): outcomes, latency, bytes, MCP negotiation, HTTP status.",
+    "bigip": "Not read by the simulator. BIG-IP_C counters are read by Autopilot through the deployer (read-only).",
+    "application": "Agent A investigation result fields (state, front-door card_url, replicas) as returned by Agent A's API."
+  }
+}

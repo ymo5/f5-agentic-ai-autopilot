@@ -1,0 +1,1106 @@
+[
+ {
+  "body": {
+   "architecture": [
+    {
+     "application": "mcp_risk_scoring",
+     "irules": [
+      "irule_mcp_persist"
+     ],
+     "lb_mode": "least-connections-member",
+     "monitor": "mon_mcp",
+     "persistence": true,
+     "pool_members": [
+      "10.50.20.31:8000",
+      "10.50.20.32:8000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server",
+     "virtual_server": "10.50.10.101:443"
+    },
+    {
+     "application": "mcp_fraud_intel",
+     "irules": [],
+     "lb_mode": "least-connections-member",
+     "monitor": "mon_mcp",
+     "persistence": false,
+     "pool_members": [
+      "10.50.20.33:8000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server",
+     "virtual_server": "10.50.10.102:443"
+    },
+    {
+     "application": "a2a_risk_assessment_agent",
+     "irules": [],
+     "lb_mode": "round-robin",
+     "monitor": "mon_a2a",
+     "persistence": false,
+     "pool_members": [
+      "10.50.20.22:9000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server",
+     "virtual_server": "10.50.10.100:443"
+    }
+   ],
+   "as3": {
+    "action": "deploy",
+    "class": "AS3",
+    "declaration": {
+     "AP_AI": {
+      "Shared": {
+       "cert_lab": {
+        "certificate": {
+         "bigip": "/Common/aplab-wildcard.crt"
+        },
+        "class": "Certificate",
+        "privateKey": {
+         "bigip": "/Common/aplab-wildcard.key"
+        }
+       },
+       "class": "Application",
+       "http_ai": {
+        "class": "HTTP_Profile",
+        "requestChunking": "sustain",
+        "responseChunking": "sustain",
+        "xForwardedFor": true
+       },
+       "irule_mcp_persist": {
+        "class": "iRule",
+        "iRule": "# Session persistence for legacy (2025-xx) MCP clients: the server issues Mcp-Session-Id on the\n# initialize response; later requests carry it. Stateless 2026-07-28 requests carry no session id\n# and are load-balanced per request.\nwhen HTTP_REQUEST {\n  if { [HTTP::has_responded] } { return }\n  set sid [HTTP::header value \"Mcp-Session-Id\"]\n  if { $sid ne \"\" } { persist uie $sid 1800 }\n}\nwhen HTTP_RESPONSE {\n  set sid [HTTP::header value \"Mcp-Session-Id\"]\n  if { $sid ne \"\" } { persist add uie $sid 1800 }\n}"
+       },
+       "mon_a2a": {
+        "class": "Monitor",
+        "interval": 5,
+        "monitorType": "http",
+        "receive": "\"skills\"",
+        "send": "GET /.well-known/agent-card.json HTTP/1.1\\r\\nHost: agent-b.aplab.internal\\r\\nConnection: close\\r\\n\\r\\n",
+        "timeout": 16
+       },
+       "mon_mcp": {
+        "class": "Monitor",
+        "interval": 5,
+        "monitorType": "http",
+        "receive": "\"capabilities\"",
+        "send": "POST /mcp HTTP/1.1\\r\\nHost: mcp.aplab.internal\\r\\nContent-Type: application/json\\r\\nAccept: application/json, text/event-stream\\r\\nMcp-Protocol-Version: 2026-07-28\\r\\nMcp-Method: server/discover\\r\\nContent-Length: 251\\r\\nConnection: close\\r\\n\\r\\n{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"server/discover\\\",\\\"params\\\":{\\\"_meta\\\":{\\\"io.modelcontextprotocol/protocolVersion\\\":\\\"2026-07-28\\\",\\\"io.modelcontextprotocol/clientInfo\\\":{\\\"name\\\":\\\"bigip-monitor\\\",\\\"version\\\":\\\"1\\\"},\\\"io.modelcontextprotocol/clientCapabilities\\\":{}}}}",
+        "timeout": 16
+       },
+       "tcp_ai": {
+        "class": "TCP_Profile",
+        "idleTimeout": 900
+       },
+       "template": "shared",
+       "tls_server": {
+        "certificates": [
+         {
+          "certificate": "cert_lab"
+         }
+        ],
+        "class": "TLS_Server"
+       }
+      },
+      "a2a_risk_assessment_agent": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.22"
+          ],
+          "servicePort": 9000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_a2a"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [],
+        "persistenceMethods": [],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.100"
+        ],
+        "virtualPort": 443
+       }
+      },
+      "class": "Tenant",
+      "mcp_fraud_intel": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "loadBalancingMode": "least-connections-member",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.33"
+          ],
+          "servicePort": 8000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_mcp"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [],
+        "persistenceMethods": [],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.102"
+        ],
+        "virtualPort": 443
+       }
+      },
+      "mcp_risk_scoring": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "loadBalancingMode": "least-connections-member",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.31"
+          ],
+          "servicePort": 8000
+         },
+         {
+          "serverAddresses": [
+           "10.50.20.32"
+          ],
+          "servicePort": 8000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_mcp"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [
+         {
+          "use": "/AP_AI/Shared/irule_mcp_persist"
+         }
+        ],
+        "persistenceMethods": [
+         {
+          "bigip": "/Common/universal"
+         }
+        ],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.101"
+        ],
+        "virtualPort": 443
+       }
+      }
+     },
+     "class": "ADC",
+     "id": "autopilot-<AID>-delivery",
+     "label": "F5 Agentic AI Autopilot",
+     "schemaVersion": "3.56.0"
+    },
+    "persist": true
+   },
+   "dependencies": [
+    {
+     "command": "profile delivery",
+     "effect": "DNS: agent-b/mcp-risk/mcp-intel -> VIPs",
+     "host": "ap-ai-services"
+    },
+    {
+     "command": "profile delivery",
+     "effect": "A2A card + MCP URLs -> https VIPs (lab CA)",
+     "host": "ap-agent-b"
+    },
+    {
+     "command": "profile delivery",
+     "effect": "Agent B URL -> https VIP (lab CA)",
+     "host": "ap-agent-a"
+    }
+   ],
+   "expected_outcomes": {
+    "closes": [
+     "D-001",
+     "D-002",
+     "D-003",
+     "D-004",
+     "S-005"
+    ],
+    "proven_by": [
+     "a2a.via_front_door",
+     "mcp.via_front_door",
+     "delivery.load_distribution",
+     "delivery.session_persistence",
+     "delivery.failover"
+    ]
+   },
+   "explanation": {
+    "addressed_later": [
+     {
+      "issue": "Traffic bypasses BIG-IP",
+      "reason": "addressed by the AI Security package",
+      "rule": "S-001"
+     },
+     {
+      "issue": "MCP server accepts unauthenticated clients",
+      "reason": "addressed by the AI Security package",
+      "rule": "S-002"
+     },
+     {
+      "issue": "Privileged MCP tools exposed beyond observed need",
+      "reason": "addressed by the AI Security package",
+      "rule": "S-003"
+     },
+     {
+      "issue": "No rate limiting on MCP calls",
+      "reason": "addressed by the AI Security package",
+      "rule": "S-009"
+     }
+    ],
+    "affected_services": [
+     "10.50.10.100:443",
+     "10.50.10.101:443",
+     "10.50.10.102:443",
+     "10.50.20.22:9000",
+     "10.50.20.31:8000",
+     "10.50.20.32:8000",
+     "10.50.20.33:8000"
+    ],
+    "business_value": [
+     "Agent and tool traffic gains load balancing, health-monitored failover and MCP session persistence",
+     "A single, observable BIG-IP front door for A2A and MCP (TLS with the lab certificate)",
+     "Prerequisite for enforcing security controls on every AI call"
+    ],
+    "change_summary": [
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.101:443 (tls_server) \u2192 pool 10.50.20.31:8000, 10.50.20.32:8000; monitor mon_mcp, least-connections-member, SNAT auto; Mcp-Session-Id persistence; iRules irule_mcp_persist",
+      "name": "mcp_risk_scoring",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.102:443 (tls_server) \u2192 pool 10.50.20.33:8000; monitor mon_mcp, least-connections-member, SNAT auto",
+      "name": "mcp_fraud_intel",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.100:443 (tls_server) \u2192 pool 10.50.20.22:9000; monitor mon_a2a, round-robin, SNAT auto",
+      "name": "a2a_risk_assessment_agent",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/http_ai",
+      "object": "HTTP profile (request/response chunking sustain \u2014 SSE streaming safe)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/tcp_ai",
+      "object": "TCP profile (idle timeout 900 s for long-lived A2A streams)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/tls_server",
+      "object": "Client-side TLS profile"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/cert_lab",
+      "object": "Certificate reference (existing /Common object)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/mon_mcp",
+      "object": "Health monitor"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/mon_a2a",
+      "object": "Health monitor"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/irule_mcp_persist",
+      "object": "iRule"
+     },
+     {
+      "action": "host",
+      "detail": "DNS: agent-b/mcp-risk/mcp-intel -> VIPs",
+      "name": "profile delivery",
+      "object": "ap-ai-services"
+     },
+     {
+      "action": "host",
+      "detail": "A2A card + MCP URLs -> https VIPs (lab CA)",
+      "name": "profile delivery",
+      "object": "ap-agent-b"
+     },
+     {
+      "action": "host",
+      "detail": "Agent B URL -> https VIP (lab CA)",
+      "name": "profile delivery",
+      "object": "ap-agent-a"
+     }
+    ],
+    "deployment_dependencies": [
+     "Part A prerequisite: A.1 VLANs/self IPs",
+     "Part A prerequisite: A.2 NTP",
+     "Part A prerequisite: A.3 AS3 3.56.0",
+     "Part A prerequisite: A.4 lab PKI",
+     "Part A prerequisite: A.5 ap-deployer"
+    ],
+    "external_changes": {
+     "agent_configuration": [
+      {
+       "from": "http://10.50.10.22:9000",
+       "service": "agent-a",
+       "setting": "agent_b_url",
+       "to": "https://agent-b.aplab.internal"
+      },
+      {
+       "from": "http://10.50.20.31:8000/mcp",
+       "service": "agent-b",
+       "setting": "mcp_risk_url",
+       "to": "https://mcp-risk.aplab.internal/mcp"
+      },
+      {
+       "from": "http://10.50.20.33:8000/mcp",
+       "service": "agent-b",
+       "setting": "mcp_intel_url",
+       "to": "https://mcp-intel.aplab.internal/mcp"
+      }
+     ],
+     "dns": [
+      {
+       "from": "10.50.10.22",
+       "name": "agent-b.aplab.internal",
+       "to": "10.50.10.100"
+      },
+      {
+       "from": "10.50.20.31",
+       "name": "mcp-risk.aplab.internal",
+       "to": "10.50.10.101"
+      },
+      {
+       "from": "10.50.20.33",
+       "name": "mcp-intel.aplab.internal",
+       "to": "10.50.10.102"
+      }
+     ],
+     "firewall": []
+    },
+    "findings_addressed": [
+     {
+      "class": "Architectural gap",
+      "count": 1,
+      "issue": "MCP replicas without load balancing",
+      "proven_by": [
+       "delivery.load_distribution"
+      ],
+      "rule": "D-001"
+     },
+     {
+      "class": "Architectural gap",
+      "count": 1,
+      "issue": "No health monitoring / failover for MCP replicas",
+      "proven_by": [
+       "delivery.failover"
+      ],
+      "rule": "D-002"
+     },
+     {
+      "class": "Inferred risk",
+      "count": 1,
+      "issue": "Stateful MCP sessions need persistence",
+      "proven_by": [
+       "delivery.session_persistence"
+      ],
+      "rule": "D-003"
+     },
+     {
+      "class": "Architectural gap",
+      "count": 1,
+      "issue": "A2A agent served without an ADC",
+      "proven_by": [
+       "a2a.via_front_door"
+      ],
+      "rule": "D-004"
+     },
+     {
+      "class": "Architectural gap",
+      "count": 2,
+      "issue": "Agent Card advertises its direct endpoint",
+      "proven_by": [
+       "a2a.card_advertises_front_door"
+      ],
+      "rule": "S-005"
+     }
+    ],
+    "not_addressed": [
+     {
+      "issue": "A2A agent advertises no authentication",
+      "reason": "Requires mTLS on the A2A virtual server plus a client certificate for Agent A and a securitySchemes entry in Agent B's card \u2014 a host-profile change on AP-AGENT-A/AP-AGENT-B that is designed (docs/40) but not yet approved. Reported as remaining.",
+      "rule": "S-004"
+     }
+    ],
+    "summary": "3 virtual server(s) in tenant AP_AI; 3 host step(s); addresses 5 finding type(s)",
+    "targets": {
+     "device": "BIG-IP_C 192.0.2.16",
+     "hosts": [
+      {
+       "command": "profile delivery",
+       "effect": "DNS: agent-b/mcp-risk/mcp-intel -> VIPs",
+       "host": "ap-ai-services"
+      },
+      {
+       "command": "profile delivery",
+       "effect": "A2A card + MCP URLs -> https VIPs (lab CA)",
+       "host": "ap-agent-b"
+      },
+      {
+       "command": "profile delivery",
+       "effect": "Agent B URL -> https VIP (lab CA)",
+       "host": "ap-agent-a"
+      }
+     ],
+     "not_touched": "frozen lab, ESXi, /Common objects (referenced read-only), other tenants",
+     "objects": [
+      "/AP_AI/Shared/http_ai",
+      "/AP_AI/Shared/tcp_ai",
+      "/AP_AI/Shared/tls_server",
+      "/AP_AI/Shared/cert_lab",
+      "/AP_AI/Shared/mon_mcp",
+      "/AP_AI/Shared/mon_a2a",
+      "/AP_AI/Shared/irule_mcp_persist",
+      "/AP_AI/mcp_risk_scoring/service",
+      "/AP_AI/mcp_risk_scoring/pool",
+      "/AP_AI/mcp_fraud_intel/service",
+      "/AP_AI/mcp_fraud_intel/pool",
+      "/AP_AI/a2a_risk_assessment_agent/service",
+      "/AP_AI/a2a_risk_assessment_agent/pool"
+     ],
+     "tenant": "AP_AI"
+    },
+    "unmapped_services": []
+   },
+   "gate_profile": "after-delivery",
+   "pattern_ids": [
+    "mcp-delivery",
+    "a2a-delivery"
+   ],
+   "prerequisites": [
+    "A.1 VLANs/self IPs",
+    "A.2 NTP",
+    "A.3 AS3 3.56.0",
+    "A.4 lab PKI",
+    "A.5 ap-deployer"
+   ],
+   "requires": null,
+   "rollback": "Re-POST previous AP_AI declaration (or DELETE tenant AP_AI if none); host profiles -> previous (baseline)"
+  },
+  "kind": "delivery",
+  "target": "BIG-IP_C 192.0.2.16 AS3 tenant AP_AI",
+  "title": "AI Delivery \u2014 BIG-IP virtual servers, pools, MCP/A2A monitors, persistence"
+ },
+ {
+  "body": {
+   "architecture": [
+    {
+     "application": "mcp_risk_scoring",
+     "irules": [
+      "irule_mcp_policy",
+      "irule_mcp_persist"
+     ],
+     "lb_mode": "least-connections-member",
+     "monitor": "mon_mcp",
+     "persistence": true,
+     "pool_members": [
+      "10.50.20.31:8000",
+      "10.50.20.32:8000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server_mtls",
+     "virtual_server": "10.50.10.101:443"
+    },
+    {
+     "application": "mcp_fraud_intel",
+     "irules": [
+      "irule_mcp_policy"
+     ],
+     "lb_mode": "least-connections-member",
+     "monitor": "mon_mcp",
+     "persistence": false,
+     "pool_members": [
+      "10.50.20.33:8000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server_mtls",
+     "virtual_server": "10.50.10.102:443"
+    },
+    {
+     "application": "a2a_risk_assessment_agent",
+     "irules": [],
+     "lb_mode": "round-robin",
+     "monitor": "mon_a2a",
+     "persistence": false,
+     "pool_members": [
+      "10.50.20.22:9000"
+     ],
+     "snat": "auto",
+     "tls": "tls_server",
+     "virtual_server": "10.50.10.100:443"
+    }
+   ],
+   "as3": {
+    "action": "deploy",
+    "class": "AS3",
+    "declaration": {
+     "AP_AI": {
+      "Shared": {
+       "cert_lab": {
+        "certificate": {
+         "bigip": "/Common/aplab-wildcard.crt"
+        },
+        "class": "Certificate",
+        "privateKey": {
+         "bigip": "/Common/aplab-wildcard.key"
+        }
+       },
+       "class": "Application",
+       "http_ai": {
+        "class": "HTTP_Profile",
+        "requestChunking": "sustain",
+        "responseChunking": "sustain",
+        "xForwardedFor": true
+       },
+       "irule_mcp_persist": {
+        "class": "iRule",
+        "iRule": "# Session persistence for legacy (2025-xx) MCP clients: the server issues Mcp-Session-Id on the\n# initialize response; later requests carry it. Stateless 2026-07-28 requests carry no session id\n# and are load-balanced per request.\nwhen HTTP_REQUEST {\n  if { [HTTP::has_responded] } { return }\n  set sid [HTTP::header value \"Mcp-Session-Id\"]\n  if { $sid ne \"\" } { persist uie $sid 1800 }\n}\nwhen HTTP_RESPONSE {\n  set sid [HTTP::header value \"Mcp-Session-Id\"]\n  if { $sid ne \"\" } { persist add uie $sid 1800 }\n}"
+       },
+       "irule_mcp_policy": {
+        "class": "iRule",
+        "iRule": "# MCP identity-aware tool authorisation + per-identity rate limiting (LTM iRule, generated by Autopilot).\n# Identity = Subject CN of the client certificate validated by the client-SSL profile (mTLS, authenticationMode require).\n# Fail closed: unknown identity, unparseable/oversized/chunked bodies, unknown MCP methods, a tool name that cannot be\n# identified unambiguously, and any tool not on the identity's allow-list are refused.\n# Which part of the request is trusted depends on the DECLARED protocol (doc 34, finding B1):\n#  * Mcp-Protocol-Version 2026-07-28: the MCP server rejects requests whose Mcp-Method/Mcp-Name headers disagree with\n#    the body (-32020), so the headers identify the operation; Mcp-Method is mandatory.\n#  * anything else (legacy 2025-xx sessions): the server IGNORES Mcp-Method/Mcp-Name, so those headers are never trusted\n#    and method + tool are taken only from the JSON-RPC body (a decoy header cannot skip inspection).\nwhen CLIENT_ACCEPTED { set ident \"\" }\nwhen CLIENTSSL_CLIENTCERT {\n  set ident \"\"\n  if { [SSL::cert count] > 0 } { regexp {CN=([^,/]+)} [X509::subject [SSL::cert 0]] -> ident }\n}\nwhen HTTP_REQUEST {\n  if { $ident eq \"\" } { HTTP::respond 401 content \"client certificate required\" ; return }\n  set allowed {}\n  switch -- $ident {\n    \"agent-b\" { set allowed {score_transaction} }\n    \"ap-validator\" { set allowed {model_info score_transaction} }\n    default {\n      # Bounded, non-sensitive evidence: do not log certificate material, payloads, or credentials.\n      set log_ident [string range $ident 0 63]\n      regsub -all {[^A-Za-z0-9_.:-]} $log_ident _ log_ident\n      log local0.notice \"mcp-policy ts=[clock seconds] identity=$log_ident counter=not-counted branch=unknown_identity status=403\"\n      HTTP::respond 403 content \"unknown agent identity\" ; return\n    }\n  }\n  # per-identity rate limit: 120 requests per calendar minute (fixed window; the key changes every minute,\n  # so a busy identity is never locked out beyond the current minute)\n  set key \"$ident:[expr {[clock seconds] / 60}]\"\n  set n [table incr -subtable mcp_rate $key]\n  if { $n == 1 } { table timeout -subtable mcp_rate $key 120 }\n  if { $n > 120 } {\n    set log_ident [string range $ident 0 63]\n    regsub -all {[^A-Za-z0-9_.:-]} $log_ident _ log_ident\n    log local0.notice \"mcp-policy ts=[clock seconds] identity=$log_ident counter=$n branch=rate_limit status=429\"\n    HTTP::respond 429 content \"rate limit exceeded\" \"Retry-After\" \"60\" ; return\n  }\n  HTTP::header replace \"X-Agent-Identity\" $ident\n  if { [HTTP::header value \"Mcp-Protocol-Version\"] eq \"2026-07-28\" } {\n    set method [HTTP::header value \"Mcp-Method\"]\n    if { [HTTP::method] eq \"POST\" } {\n      switch -- $method {\n        \"server/discover\" - \"tools/list\" - \"ping\" { }\n        \"tools/call\" {\n          set tool [HTTP::header value \"Mcp-Name\"]\n          if { [lsearch -exact $allowed $tool] < 0 } {\n            log local0.warn \"mcp-policy deny ident=$ident tool=$tool\"\n            HTTP::respond 403 content \"tool not permitted for $ident\" ; return\n          }\n        }\n        \"\" { HTTP::respond 400 content \"Mcp-Method header required\" ; return }\n        default { log local0.warn \"mcp-policy deny ident=$ident method=$method\" ; HTTP::respond 403 content \"MCP method not permitted\" ; return }\n      }\n    }\n  } elseif { [HTTP::method] eq \"POST\" } {\n    # legacy (2025-xx) clients: method and tool only from the JSON-RPC body -> inspect it, or refuse\n    set cl [HTTP::header value \"Content-Length\"]\n    if { $cl eq \"\" || ![string is integer -strict $cl] } { HTTP::respond 411 content \"Content-Length required for policy inspection\" ; return }\n    if { $cl > 65536 } { HTTP::respond 413 content \"request too large for policy inspection\" ; return }\n    if { $cl > 0 } { HTTP::collect $cl } else { HTTP::respond 400 content \"empty JSON-RPC request\" ; return }\n  }\n}\nwhen HTTP_REQUEST_DATA {\n  set body [string trimleft [HTTP::payload]]\n  if { [string match {\\[*} $body] } { HTTP::respond 400 content \"JSON-RPC batches are not permitted\" ; return }\n  set methods [regexp -all -inline {\"method\"\\s*:\\s*\"([^\"]*)\"} $body]\n  if { [llength $methods] != 2 } { HTTP::respond 400 content \"exactly one JSON-RPC method required\" ; return }\n  set m [lindex $methods 1]\n  switch -- $m {\n    \"initialize\" - \"notifications/initialized\" - \"notifications/cancelled\" - \"ping\" - \"tools/list\" { }\n    \"tools/call\" {\n      # exactly one \"name\" key: with more (e.g. nested in arguments or _meta) the requested tool is ambiguous -> refuse\n      set names [regexp -all -inline {\"name\"\\s*:\\s*\"([^\"]*)\"} $body]\n      if { [llength $names] != 2 } { HTTP::respond 400 content \"tool cannot be identified unambiguously\" ; return }\n      set tool [lindex $names 1]\n      if { [lsearch -exact $allowed $tool] < 0 } {\n        log local0.warn \"mcp-policy deny ident=$ident tool=$tool (legacy)\"\n        HTTP::respond 403 content \"tool not permitted for $ident\" ; return\n      }\n    }\n    default { log local0.warn \"mcp-policy deny ident=$ident method=$m (legacy)\" ; HTTP::respond 403 content \"MCP method not permitted\" ; return }\n  }\n  HTTP::release\n}"
+       },
+       "mon_a2a": {
+        "class": "Monitor",
+        "interval": 5,
+        "monitorType": "http",
+        "receive": "\"skills\"",
+        "send": "GET /.well-known/agent-card.json HTTP/1.1\\r\\nHost: agent-b.aplab.internal\\r\\nConnection: close\\r\\n\\r\\n",
+        "timeout": 16
+       },
+       "mon_mcp": {
+        "class": "Monitor",
+        "interval": 5,
+        "monitorType": "http",
+        "receive": "\"capabilities\"",
+        "send": "POST /mcp HTTP/1.1\\r\\nHost: mcp.aplab.internal\\r\\nContent-Type: application/json\\r\\nAccept: application/json, text/event-stream\\r\\nMcp-Protocol-Version: 2026-07-28\\r\\nMcp-Method: server/discover\\r\\nContent-Length: 251\\r\\nConnection: close\\r\\n\\r\\n{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"server/discover\\\",\\\"params\\\":{\\\"_meta\\\":{\\\"io.modelcontextprotocol/protocolVersion\\\":\\\"2026-07-28\\\",\\\"io.modelcontextprotocol/clientInfo\\\":{\\\"name\\\":\\\"bigip-monitor\\\",\\\"version\\\":\\\"1\\\"},\\\"io.modelcontextprotocol/clientCapabilities\\\":{}}}}",
+        "timeout": 16
+       },
+       "tcp_ai": {
+        "class": "TCP_Profile",
+        "idleTimeout": 900
+       },
+       "template": "shared",
+       "tls_server": {
+        "certificates": [
+         {
+          "certificate": "cert_lab"
+         }
+        ],
+        "class": "TLS_Server"
+       },
+       "tls_server_mtls": {
+        "authenticationMode": "require",
+        "authenticationTrustCA": {
+         "bigip": "/Common/aplab-ca.crt"
+        },
+        "certificates": [
+         {
+          "certificate": "cert_lab"
+         }
+        ],
+        "class": "TLS_Server"
+       }
+      },
+      "a2a_risk_assessment_agent": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.22"
+          ],
+          "servicePort": 9000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_a2a"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [],
+        "persistenceMethods": [],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.100"
+        ],
+        "virtualPort": 443
+       }
+      },
+      "class": "Tenant",
+      "mcp_fraud_intel": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "loadBalancingMode": "least-connections-member",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.33"
+          ],
+          "servicePort": 8000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_mcp"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [
+         {
+          "use": "/AP_AI/Shared/irule_mcp_policy"
+         }
+        ],
+        "persistenceMethods": [],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server_mtls"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.102"
+        ],
+        "virtualPort": 443
+       }
+      },
+      "mcp_risk_scoring": {
+       "class": "Application",
+       "pool": {
+        "class": "Pool",
+        "loadBalancingMode": "least-connections-member",
+        "members": [
+         {
+          "serverAddresses": [
+           "10.50.20.31"
+          ],
+          "servicePort": 8000
+         },
+         {
+          "serverAddresses": [
+           "10.50.20.32"
+          ],
+          "servicePort": 8000
+         }
+        ],
+        "monitors": [
+         {
+          "use": "/AP_AI/Shared/mon_mcp"
+         }
+        ]
+       },
+       "service": {
+        "class": "Service_HTTPS",
+        "iRules": [
+         {
+          "use": "/AP_AI/Shared/irule_mcp_policy"
+         },
+         {
+          "use": "/AP_AI/Shared/irule_mcp_persist"
+         }
+        ],
+        "persistenceMethods": [
+         {
+          "bigip": "/Common/universal"
+         }
+        ],
+        "pool": "pool",
+        "profileHTTP": {
+         "use": "/AP_AI/Shared/http_ai"
+        },
+        "profileTCP": {
+         "use": "/AP_AI/Shared/tcp_ai"
+        },
+        "redirect80": false,
+        "serverTLS": {
+         "use": "/AP_AI/Shared/tls_server_mtls"
+        },
+        "snat": "auto",
+        "virtualAddresses": [
+         "10.50.10.101"
+        ],
+        "virtualPort": 443
+       }
+      }
+     },
+     "class": "ADC",
+     "id": "autopilot-<AID>-security",
+     "label": "F5 Agentic AI Autopilot",
+     "schemaVersion": "3.56.0"
+    },
+    "persist": true
+   },
+   "dependencies": [
+    {
+     "command": "profile security",
+     "effect": "Agent B presents mTLS identity 'agent-b'",
+     "host": "ap-agent-b"
+    },
+    {
+     "command": "profile security",
+     "effect": "MCP backends accept only BIG-IP self 10.50.20.10",
+     "host": "ap-ai-services"
+    },
+    {
+     "command": "profile security",
+     "effect": "unchanged from delivery",
+     "host": "ap-agent-a"
+    }
+   ],
+   "expected_outcomes": {
+    "closes": [
+     "S-001",
+     "S-002",
+     "S-003",
+     "S-009"
+    ],
+    "proven_by": [
+     "security.authorized_tool_allowed",
+     "security.unauthorized_tool_denied",
+     "security.unauthenticated_rejected",
+     "security.unknown_identity_denied",
+     "security.decoy_header_denied",
+     "security.rate_limited",
+     "security.direct_backend_blocked",
+     "security.agent_b_direct_blocked"
+    ]
+   },
+   "explanation": {
+    "addressed_later": [],
+    "affected_services": [
+     "10.50.10.100:443",
+     "10.50.10.101:443",
+     "10.50.10.102:443",
+     "10.50.20.22:9000",
+     "10.50.20.31:8000",
+     "10.50.20.32:8000",
+     "10.50.20.33:8000"
+    ],
+    "business_value": [
+     "Only authenticated agents (mTLS identity) can reach MCP tools",
+     "Least-privilege tool access derived from observed usage; destructive tools denied",
+     "Per-identity rate limiting and closure of the direct-to-backend bypass"
+    ],
+    "change_summary": [
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.101:443 (tls_server_mtls) \u2192 pool 10.50.20.31:8000, 10.50.20.32:8000; monitor mon_mcp, least-connections-member, SNAT auto; Mcp-Session-Id persistence; iRules irule_mcp_policy, irule_mcp_persist",
+      "name": "mcp_risk_scoring",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.102:443 (tls_server_mtls) \u2192 pool 10.50.20.33:8000; monitor mon_mcp, least-connections-member, SNAT auto; iRules irule_mcp_policy",
+      "name": "mcp_fraud_intel",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "HTTPS virtual server 10.50.10.100:443 (tls_server) \u2192 pool 10.50.20.22:9000; monitor mon_a2a, round-robin, SNAT auto",
+      "name": "a2a_risk_assessment_agent",
+      "object": "Virtual server + pool"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/http_ai",
+      "object": "HTTP profile (request/response chunking sustain \u2014 SSE streaming safe)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/tcp_ai",
+      "object": "TCP profile (idle timeout 900 s for long-lived A2A streams)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/tls_server",
+      "object": "Client-side TLS profile"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/cert_lab",
+      "object": "Certificate reference (existing /Common object)"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/mon_mcp",
+      "object": "Health monitor"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/mon_a2a",
+      "object": "Health monitor"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/irule_mcp_persist",
+      "object": "iRule"
+     },
+     {
+      "action": "create",
+      "detail": "requires client certificate (mTLS)",
+      "name": "/AP_AI/Shared/tls_server_mtls",
+      "object": "Client-side TLS profile"
+     },
+     {
+      "action": "create",
+      "detail": "",
+      "name": "/AP_AI/Shared/irule_mcp_policy",
+      "object": "iRule"
+     },
+     {
+      "action": "host",
+      "detail": "Agent B presents mTLS identity 'agent-b'",
+      "name": "profile security",
+      "object": "ap-agent-b"
+     },
+     {
+      "action": "host",
+      "detail": "MCP backends accept only BIG-IP self 10.50.20.10",
+      "name": "profile security",
+      "object": "ap-ai-services"
+     },
+     {
+      "action": "host",
+      "detail": "unchanged from delivery",
+      "name": "profile security",
+      "object": "ap-agent-a"
+     }
+    ],
+    "deployment_dependencies": [
+     "AI Delivery deployed and validated (sequence gate)",
+     "Part A prerequisite: A.1 VLANs/self IPs",
+     "Part A prerequisite: A.2 NTP",
+     "Part A prerequisite: A.3 AS3 3.56.0",
+     "Part A prerequisite: A.4 lab PKI",
+     "Part A prerequisite: A.5 ap-deployer"
+    ],
+    "external_changes": {
+     "agent_configuration": [],
+     "dns": [],
+     "firewall": [
+      "AP-AI-SERVICES: MCP backends accept only the BIG-IP self IP (nftables lockdown)"
+     ]
+    },
+    "findings_addressed": [
+     {
+      "class": "Architectural gap",
+      "count": 2,
+      "issue": "Traffic bypasses BIG-IP",
+      "proven_by": [
+       "security.agent_b_direct_blocked",
+       "security.direct_backend_blocked"
+      ],
+      "rule": "S-001"
+     },
+     {
+      "class": "Confirmed vulnerability",
+      "count": 3,
+      "issue": "MCP server accepts unauthenticated clients",
+      "proven_by": [
+       "security.unauthenticated_rejected"
+      ],
+      "rule": "S-002"
+     },
+     {
+      "class": "Confirmed vulnerability",
+      "count": 1,
+      "issue": "Privileged MCP tools exposed beyond observed need",
+      "proven_by": [
+       "security.unauthorized_tool_denied"
+      ],
+      "rule": "S-003"
+     },
+     {
+      "class": "Architectural gap",
+      "count": 1,
+      "issue": "No rate limiting on MCP calls",
+      "proven_by": [
+       "security.rate_limited"
+      ],
+      "rule": "S-009"
+     }
+    ],
+    "not_addressed": [
+     {
+      "issue": "A2A agent advertises no authentication",
+      "reason": "Requires mTLS on the A2A virtual server plus a client certificate for Agent A and a securitySchemes entry in Agent B's card \u2014 a host-profile change on AP-AGENT-A/AP-AGENT-B that is designed (docs/40) but not yet approved. Reported as remaining.",
+      "rule": "S-004"
+     }
+    ],
+    "summary": "3 virtual server(s) in tenant AP_AI; 3 host step(s); addresses 4 finding type(s)",
+    "targets": {
+     "device": "BIG-IP_C 192.0.2.16",
+     "hosts": [
+      {
+       "command": "profile security",
+       "effect": "Agent B presents mTLS identity 'agent-b'",
+       "host": "ap-agent-b"
+      },
+      {
+       "command": "profile security",
+       "effect": "MCP backends accept only BIG-IP self 10.50.20.10",
+       "host": "ap-ai-services"
+      },
+      {
+       "command": "profile security",
+       "effect": "unchanged from delivery",
+       "host": "ap-agent-a"
+      }
+     ],
+     "not_touched": "frozen lab, ESXi, /Common objects (referenced read-only), other tenants",
+     "objects": [
+      "/AP_AI/Shared/http_ai",
+      "/AP_AI/Shared/tcp_ai",
+      "/AP_AI/Shared/tls_server",
+      "/AP_AI/Shared/cert_lab",
+      "/AP_AI/Shared/mon_mcp",
+      "/AP_AI/Shared/mon_a2a",
+      "/AP_AI/Shared/irule_mcp_persist",
+      "/AP_AI/Shared/tls_server_mtls",
+      "/AP_AI/Shared/irule_mcp_policy",
+      "/AP_AI/mcp_risk_scoring/service",
+      "/AP_AI/mcp_risk_scoring/pool",
+      "/AP_AI/mcp_fraud_intel/service",
+      "/AP_AI/mcp_fraud_intel/pool",
+      "/AP_AI/a2a_risk_assessment_agent/service",
+      "/AP_AI/a2a_risk_assessment_agent/pool"
+     ],
+     "tenant": "AP_AI"
+    },
+    "unmapped_services": []
+   },
+   "gate_profile": "after-security",
+   "pattern_ids": [
+    "mcp-security"
+   ],
+   "prerequisites": [
+    "A.1 VLANs/self IPs",
+    "A.2 NTP",
+    "A.3 AS3 3.56.0",
+    "A.4 lab PKI",
+    "A.5 ap-deployer"
+   ],
+   "rate_limit_per_min": 120,
+   "requires": "delivery",
+   "rollback": "Re-POST the delivery-stage declaration; host profiles -> delivery",
+   "tool_allow_list": {
+    "agent-b": [
+     "score_transaction"
+    ],
+    "ap-validator": [
+     "model_info",
+     "score_transaction"
+    ]
+   }
+  },
+  "kind": "security",
+  "target": "BIG-IP_C 192.0.2.16 AS3 tenant AP_AI",
+  "title": "AI Security \u2014 mTLS agent identity, MCP tool authorisation, rate limiting, bypass lockdown"
+ }
+]

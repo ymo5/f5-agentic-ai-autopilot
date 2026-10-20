@@ -1,0 +1,52 @@
+# Python / tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.venv-*/
+venv/
+# Runtime data and evidence — never commit
+*.db
+*.db-*
+*.sqlite*
+*.log
+*.pid
+snapshots/
+trace-summaries/
+test-results/
+backups/
+evidence/
+inventory/
+outputs/
+state/
+data/
+*.ucs
+*.qkview
+*.tgz
+*.tar.gz
+# Secrets and installation-specific configuration
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+secrets/
+pki/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+known_hosts
+deploy/autopilot/autopilot.local.yaml
+config/observe-devices.conf
+config/f5-tls-pins.env
+config/observe-collector.env
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# host profile environment files (non-secret, part of the reference lab design)
+!deploy/profiles/**/agent.env

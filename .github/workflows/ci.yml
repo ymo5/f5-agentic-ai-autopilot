@@ -1,0 +1,35 @@
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r requirements-dev.txt
+      - name: Autopilot tests (offline)
+        run: cd app && python -B -m pytest -q -p no:cacheprovider tests
+      - name: Traffic Generator tests (offline)
+        run: cd traffic-generator/simulator && python -B -m pytest -q -p no:cacheprovider tests_offline
+      - name: Lint (pyflakes, application code)
+        run: python -m pyflakes app/autopilot/auth.py app/autopilot/aiops.py
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: gitleaks/gitleaks-action@v2
+        env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the runtime image
+        run: docker build -f deploy/common/Dockerfile -t aplab-py:ci .
+      - name: Smoke-test the image (byte-compile + auth CLI)
+        run: |
+          docker run --rm -e PYTHONPYCACHEPREFIX=/tmp/pyc aplab-py:ci python -m compileall -q /opt/aplab/autopilot /opt/aplab/services /opt/aplab/aplab
+          docker run --rm aplab-py:ci python -m autopilot.auth --help

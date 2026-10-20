@@ -1,0 +1,16 @@
+# OPTIONAL overlay: Traffic Generator status (web, read-only) and preset controls (deployer -> root broker).
+#   docker compose -f docker-compose.yml -f docker-compose.trafficgen.yml up -d
+# Prerequisites on the host: traffic-generator/container/install.sh (ap-trafficgen image + /var/lib/ap-trafficgen) and
+# traffic-generator/container/trafficgen-broker-setup.sh (group aptgctl 10021, socket, HMAC key copied to
+# ${APLAB_SECRETS}/deployer/trafficgen_broker_key). Reconstructed from the reference lab's release notes; review before use.
+services:
+  autopilot:
+    group_add: ["64001"]                       # read access to the generator's status / run archive
+    environment:
+      AUTOPILOT_TRAFFICGEN_DIR: /var/lib/ap-trafficgen
+    volumes: ["/var/lib/ap-trafficgen:/var/lib/ap-trafficgen:ro"]
+  autopilot-deployer:
+    group_add: ["10020", "10021"]              # apwin (live window) + aptgctl (traffic broker socket)
+    environment:
+      DEPLOYER_TRAFFICGEN_BROKER: /run/ap-trafficgen-broker/broker.sock
+    volumes: ["/run/ap-trafficgen-broker:/run/ap-trafficgen-broker"]

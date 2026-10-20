@@ -1,0 +1,24 @@
+# Pinned to versions validated in local smoke tests (2026-10-13)
+a2a-sdk[http-server]==1.2.2
+mcp==2.3.0
+mcp-types==2.3.0
+httpx==0.28.1
+httpx2==2.13.1
+uvicorn==0.54.0
+starlette==1.8.0
+fastapi==0.143.0
+pydantic==2.14.1
+protobuf==7.36.2
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-http==1.45.1
+opentelemetry-instrumentation==0.66b1
+opentelemetry-instrumentation-asgi==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1
+opentelemetry-instrumentation-botocore==0.66b1
+qdrant-client==1.19.1
+boto3==1.43.112
+pyyaml==6.0.3
+dnspython==2.9.0
+jinja2==3.1.6
+jsonschema==4.26.0

@@ -1,0 +1,4 @@
+# AP-AI-SERVICES: management-side services (data-plane services bind to 10.50.20.x only).
+add rule inet ap_base input ip saddr 192.0.2.60-192.0.2.63 tcp dport { 4317, 4318 } accept comment "OTLP from AP hosts"
+add rule inet ap_base input ip saddr 192.0.2.60-192.0.2.63 meta l4proto { tcp, udp } th dport 53 accept comment "DNS from AP hosts"
+add rule inet ap_base input ip saddr 192.0.2.0/24 tcp dport 16686 accept comment "Jaeger UI/API (operator LAN)"

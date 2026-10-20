@@ -1,0 +1,17 @@
+# AP-AGENT-A — Fraud Investigation Agent (A2A client) + operator UI on mgmt :8080.
+services:
+  agent-a:
+    image: aplab-py:0.1
+    build: {context: /opt/aplab/src, dockerfile: deploy/common/Dockerfile, network: host}
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "services.agent_a.agent"]
+    environment:
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: "8080"
+      AGENT_B_URL: ${AGENT_B_URL:-http://10.50.10.22:9000}
+      AGENT_A_CA_BUNDLE: ${AGENT_A_CA_BUNDLE:-}   # set only by the delivery/security profiles
+      APLAB_DATA: /data/synthetic.json
+      AGENT_A_DB: /var/lib/agent-a/results.db
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://192.0.2.63:4318
+    volumes: ["/opt/aplab/data:/data:ro", "/var/lib/aplab/agent-a:/var/lib/agent-a", "/opt/aplab/pki:/opt/aplab/pki:ro"]

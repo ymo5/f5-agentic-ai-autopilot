@@ -1,0 +1,1 @@
+add rule inet ap_base input ip saddr 192.0.2.0/24 tcp dport 8080 accept comment "Agent A operator UI (LAN)"

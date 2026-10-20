@@ -1,0 +1,106 @@
+# AP-AI-SERVICES — MCP servers, RAG (Qdrant), S3 (SeaweedFS), local LLM (Ollama), DNS (CoreDNS),
+# OpenTelemetry Collector + Jaeger. All containers use host networking and bind to explicit IPs:
+#   10.50.20.31/.32 MCP risk-scoring replicas · .33 MCP fraud-intel · .40 Qdrant · .41 S3
+#   .45 LLM · .53 DNS (also 192.0.2.63) · .63 / 192.0.2.63 OTLP · 192.0.2.63:16686 Jaeger UI
+x-py: &py
+  image: aplab-py:0.1
+  network_mode: host
+  restart: unless-stopped
+  volumes: ["/opt/aplab/data:/data:ro"]
+  environment: &pyenv
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://10.50.20.63:4318
+    APLAB_DATA: /data/synthetic.json
+
+services:
+  build-py:
+    image: aplab-py:0.1
+    build: {context: /opt/aplab/src, dockerfile: deploy/common/Dockerfile, network: host}
+    profiles: ["build"]
+
+  coredns:
+    image: coredns/coredns:1.12.4
+    network_mode: host
+    restart: unless-stopped
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes: ["./coredns:/etc/coredns:ro"]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.11.0
+    network_mode: host
+    restart: unless-stopped
+    command: ["--config", "/etc/jaeger/config.yaml"]
+    volumes: ["./jaeger:/etc/jaeger:ro"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.137.0
+    network_mode: host
+    restart: unless-stopped
+    user: "0"
+    command: ["--config", "/etc/otelcol/collector.yaml"]
+    volumes: ["./otel:/etc/otelcol:ro", "/var/lib/aplab/otel:/var/lib/otel"]
+    depends_on: [jaeger]
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__HOST: 10.50.20.40
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes: ["/var/lib/aplab/qdrant:/qdrant/storage"]
+
+  s3:
+    image: chrislusf/seaweedfs:3.97
+    network_mode: host
+    restart: unless-stopped
+    command: ["server", "-ip=10.50.20.41", "-ip.bind=10.50.20.41", "-dir=/data", "-s3", "-s3.port=8333",
+              "-s3.config=/etc/seaweedfs/s3.json", "-volume.max=8", "-master.volumeSizeLimitMB=512"]
+    volumes: ["/var/lib/aplab/seaweedfs:/data", "/opt/aplab/secrets/s3.json:/etc/seaweedfs/s3.json:ro"]
+
+  llm:
+    image: ollama/ollama:0.12.6
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 10.50.20.45:11434
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: "2"
+    volumes: ["/var/lib/aplab/ollama:/root/.ollama"]
+
+  mcp-risk-1:
+    <<: *py
+    command: ["python", "-m", "services.mcp_risk.server"]
+    environment:
+      <<: *pyenv
+      REPLICA_ID: risk-scoring-1
+      BIND_HOST: 10.50.20.31
+      BIND_PORT: "8000"
+      MCP_ALLOWED_HOSTS: "10.50.20.31:*,mcp-risk-1.aplab.internal:*,mcp-risk-1.aplab.internal,mcp-risk.aplab.internal:*,mcp-risk.aplab.internal,mcp.aplab.internal:*,mcp.aplab.internal,10.50.10.101:*"
+
+  mcp-risk-2:
+    <<: *py
+    command: ["python", "-m", "services.mcp_risk.server"]
+    environment:
+      <<: *pyenv
+      REPLICA_ID: risk-scoring-2
+      BIND_HOST: 10.50.20.32
+      BIND_PORT: "8000"
+      MCP_ALLOWED_HOSTS: "10.50.20.32:*,mcp-risk-2.aplab.internal:*,mcp-risk-2.aplab.internal,mcp-risk.aplab.internal:*,mcp-risk.aplab.internal,mcp.aplab.internal:*,mcp.aplab.internal,10.50.10.101:*"
+
+  mcp-fraud-intel:
+    <<: *py
+    command: ["python", "-m", "services.mcp_fraud_intel.server"]
+    env_file: [/opt/aplab/secrets/s3.env]
+    environment:
+      <<: *pyenv
+      BIND_HOST: 10.50.20.33
+      BIND_PORT: "8000"
+      MCP_ALLOWED_HOSTS: "10.50.20.33:*,mcp-intel.aplab.internal:*,mcp-intel.aplab.internal,mcp.aplab.internal:*,mcp.aplab.internal,10.50.10.102:*"
+    depends_on: [qdrant, s3, llm]
+
+  seed:
+    <<: *py
+    restart: "no"
+    profiles: ["seed"]
+    command: ["python", "-m", "services.seed.seed"]
+    env_file: [/opt/aplab/secrets/s3.env]

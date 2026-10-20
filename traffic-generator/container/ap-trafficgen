@@ -1,0 +1,93 @@
+#!/bin/bash
+# ap-trafficgen — host control for the Project A traffic generator container on AP-AUTOPILOT-01 (run with sudo).
+#
+#   ap-trafficgen start SECONDS [--only w1,w2] [--max-rpm N]   bounded run (60..TG_MAX_DURATION_S); refuses if one is running
+#   ap-trafficgen once [--only w1,w2]                           every selected workload once, then exit
+#   ap-trafficgen dry-run                                       validate + print the plan; sends nothing
+#   ap-trafficgen stop                                          kill switch: stop file (between requests), then docker stop -t 30
+#   ap-trafficgen status                                        container state + status.json summary (no secrets)
+#   ap-trafficgen logs [N]                                      last N run-log lines (JSON; no bodies, prompts or answers)
+#   ap-trafficgen archive                                       save log + status of a finished run, remove the exited container
+#
+# Fixed, not configurable here: image (pinned by ID in /etc/ap-trafficgen/image), host network (agent0 reaches the VIPs),
+# read-only root FS, non-root user, all capabilities dropped, no-new-privileges, 256 MiB memory (no swap), 0.5 CPU,
+# 64 PIDs, restart=no, log rotation. The lab CA certificate is mounted read-only; S3 credentials only if
+# /etc/ap-trafficgen/s3.env exists (owner decision; root 0600, passed with --env-file, never printed).
+set -euo pipefail
+NAME=ap-trafficgen
+ETC=/etc/ap-trafficgen
+VAR=/var/lib/ap-trafficgen
+STATE=$VAR/state
+RUNS=$VAR/runs
+MAX=$(cat $ETC/max_duration_s 2>/dev/null || echo 3600)
+
+die() { echo "ap-trafficgen: $*" >&2; exit 2; }
+[ "$(id -u)" = 0 ] || die "run with sudo"
+IMAGE=$(cat $ETC/image 2>/dev/null) || die "not installed ($ETC/image missing)"
+case "$IMAGE" in sha256:*) ;; *) die "image pin must be an image ID (sha256:...)";; esac
+docker image inspect "$IMAGE" >/dev/null 2>&1 || die "pinned image $IMAGE not present"
+
+running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null || echo false)" = true ]; }
+exists()  { docker inspect $NAME >/dev/null 2>&1; }
+
+archive() {
+  exists || { echo "no container"; return 0; }
+  running && die "a run is in progress (use stop first)"
+  local ts; ts=$(date -u +%Y%m%dT%H%M%SZ); local d=$RUNS/$ts; install -d -m 750 "$d"
+  docker logs $NAME >"$d/run.log" 2>&1 || true
+  docker inspect -f '{{.State.ExitCode}} {{.State.StartedAt}} {{.State.FinishedAt}} {{.Config.Cmd}}' $NAME >"$d/container.txt"
+  [ -f $STATE/status.json ] && mv $STATE/status.json "$d/status.json"
+  [ -f $STATE/STOP ] && mv $STATE/STOP "$d/STOP"
+  docker rm $NAME >/dev/null
+  echo "archived $d"
+}
+
+launch() {   # $@ = entrypoint arguments (validated again inside the container)
+  running && die "already running (ap-trafficgen status / stop)"
+  exists && archive
+  [ ! -e $STATE/STOP ] || mv $STATE/STOP "$RUNS/STOP.$(date -u +%Y%m%dT%H%M%SZ)"
+  local envf=(); [ -f $ETC/s3.env ] && envf=(--env-file $ETC/s3.env)
+  docker run -d --name $NAME --init --network host --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+    --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges \
+    --memory 256m --memory-swap 256m --cpus 0.5 --pids-limit 64 --restart no --stop-timeout 30 \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=2 \
+    -v $STATE:/state:rw -v $ETC/ca.pem:/run/tg/ca.pem:ro -e F5SIM_PA_CA_FILE=/run/tg/ca.pem -e TG_MAX_DURATION_S="$MAX" \
+    "${envf[@]}" --label org.f5lab.component=ap-trafficgen "$IMAGE" "$@" >/dev/null
+  echo "started $NAME: $*"
+}
+
+cmd=${1:-status}; shift || true
+case "$cmd" in
+  start)
+    [[ "${1:-}" =~ ^[0-9]+$ ]] || die "usage: start SECONDS [--only w1,w2] [--max-rpm N]"
+    [ "$1" -ge 60 ] && [ "$1" -le "$MAX" ] || die "SECONDS must be 60..$MAX"
+    d=$1; shift; launch --duration "$d" "$@" ;;
+  once)    launch --once "$@" ;;
+  dry-run) docker run --rm --network host --read-only --user 65534:65534 --cap-drop ALL \
+             --security-opt no-new-privileges -v $ETC/ca.pem:/run/tg/ca.pem:ro -e F5SIM_PA_CA_FILE=/run/tg/ca.pem "$IMAGE" --dry-run ;;
+  stop)
+    if running; then
+      touch $STATE/STOP
+      for _ in $(seq 1 15); do running || break; sleep 1; done
+      running && docker stop -t 30 $NAME >/dev/null
+      echo "stopped (exit $(docker inspect -f '{{.State.ExitCode}}' $NAME))"
+    else echo "not running"; fi ;;
+  status)
+    if exists; then docker inspect -f 'container {{.Name}} running={{.State.Running}} exit={{.State.ExitCode}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} args={{.Config.Cmd}}' $NAME
+    else echo "container: none"; fi
+    [ -f $STATE/status.json ] || exit 0
+    python3 - "$STATE/status.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(f"mode={s.get('mode')} started={s.get('started')} updated={s.get('updated')}")
+for n, w in s["workloads"].items():
+    vip = ",".join(f"{d}={t.get('bigip_object') or t.get('address')}" for d, t in (w.get("targets") or {}).items())
+    print(f"  {n:16} runs={w['runs']:<4} ok={w['ok']:<4} denied={w['expected_denial']:<3} unexpected={w['unexpected']:<3} "
+          f"unavailable={w['unavailable']:<3} error={w['error']:<3} deferred={w.get('deferred', 0):<3} requests={w['requests']:<5} "
+          f"bytes={w.get('bytes', 0):<8} avg_ms={w['avg_ms']}  {vip}")
+PY
+    ;;
+  logs)    if exists; then docker logs --tail "${1:-50}" $NAME 2>&1; else echo "no container"; fi ;;
+  archive) archive ;;
+  *) die "unknown command $cmd" ;;
+esac

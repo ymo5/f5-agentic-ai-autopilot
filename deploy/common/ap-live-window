@@ -1,0 +1,131 @@
+#!/bin/bash
+# ap-live-window — owner-controlled, time-bounded live-deployment window for autopilot-deployer (AP-AUTOPILOT-01).
+#
+# The window file is the ONLY source of live authorisation. It holds absolute UTC epoch times, is root-owned and is
+# mounted read-only into the deployer, which re-reads it on every privileged operation and fails closed.
+# Backup systemd timers (Persistent=true, so they also fire after a host reboot):
+#   ap-live-window-expire.timer  at not_after      -> mode=cleanup (no new deployments; rollback/Reset Demo only)
+#   ap-live-window-close.timer   at cleanup_until  -> window file removed (everything locked)
+# Nothing here resets the lab or touches BIG-IP/hosts.
+#
+#   sudo ap-live-window start --by <name> [--minutes N<=180] [--grace M<=30]   (asks for typed confirmation)
+#   sudo ap-live-window status
+#   sudo ap-live-window stop  --by <name>      immediate full lock (no grace)
+#   sudo ap-live-window expire|close           (used by the timers)
+set -euo pipefail
+DIR=/etc/aplab/live-window
+WIN=$DIR/window.json
+HIST=/var/lib/aplab/live-window-history
+LOG=/var/log/ap-live-window.log
+COMPOSE=/opt/aplab/src/deploy/autopilot/docker-compose.yml
+UNITDIR=/etc/systemd/system
+CONFIRM="START REHEARSAL WINDOW"
+
+log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG" >&2; }
+die() { log "REFUSED: $*"; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+
+audit() {  # audit <actor> <action> <json-detail> — append-only audit table, via the deployer container
+  local c; c=$(docker compose -f "$COMPOSE" ps -q autopilot-deployer 2>/dev/null || true)
+  [ -n "$c" ] || { log "audit skipped (deployer not running): $2 $3"; return 0; }
+  docker exec -i -e A_ACTOR="$1" -e A_ACTION="$2" -e A_DETAIL="$3" "$c" python -c '
+import json, os
+from autopilot.store import Store
+Store(os.environ["AUTOPILOT_DB"]).audit(os.environ["A_ACTOR"], os.environ["A_ACTION"], None, json.loads(os.environ["A_DETAIL"]))' \
+    || log "audit write failed: $2"
+}
+
+health() { curl -s --max-time 10 http://127.0.0.1:8100/healthz || echo '{"error":"deployer unreachable"}'; echo; }
+
+remove_timers() {
+  for t in expire close; do
+    systemctl disable --now "ap-live-window-$t.timer" >/dev/null 2>&1 || true
+    rm -f "$UNITDIR/ap-live-window-$t.timer"   # inert .service files stay (the close service may be running)
+  done
+  systemctl daemon-reload
+}
+
+install_timer() {  # install_timer <expire|close> <epoch>
+  local when; when=$(date -u -d "@$2" '+%Y-%m-%d %H:%M:%S UTC')
+  cat > "$UNITDIR/ap-live-window-$1.service" <<EOF
+[Unit]
+Description=Autopilot live window: $1 (backup lock)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ap-live-window $1
+EOF
+  cat > "$UNITDIR/ap-live-window-$1.timer" <<EOF
+[Unit]
+Description=Autopilot live window: $1 at $when
+[Timer]
+OnCalendar=$when
+Persistent=true
+AccuracySec=1s
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$WIN" "$1"; }
+
+case "${1:-}" in
+start)
+  shift; BY=""; MIN=180; GRACE=30
+  while [ $# -gt 0 ]; do case "$1" in
+    --by) BY=$2; shift 2;; --minutes) MIN=$2; shift 2;; --grace) GRACE=$2; shift 2;; *) die "unknown option $1";; esac; done
+  [ -n "$BY" ] || die "--by <name> is required"
+  [[ "$MIN" =~ ^[0-9]+$ ]] && [ "$MIN" -ge 1 ] && [ "$MIN" -le 180 ] || die "--minutes must be 1..180"
+  [[ "$GRACE" =~ ^[0-9]+$ ]] && [ "$GRACE" -ge 1 ] && [ "$GRACE" -le 30 ] || die "--grace must be 1..30"
+  [ ! -e "$WIN" ] || die "a live window already exists ($WIN); stop it first"
+  [ "$(timedatectl show -p NTPSynchronized --value)" = yes ] || die "system clock not NTP-synchronised"
+  [ -n "$(docker compose -f "$COMPOSE" ps -q autopilot-deployer)" ] || die "autopilot-deployer is not running"
+  read -r -p "Type '$CONFIRM' to open a ${MIN}-minute live window (+${GRACE} min cleanup grace): " ans
+  [ "$ans" = "$CONFIRM" ] || die "confirmation not given"
+  NOW=$(date -u +%s); NA=$((NOW + MIN * 60)); CU=$((NA + GRACE * 60)); ID=$(date -u +%Y%m%dT%H%M%SZ)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  install -d -m 755 -o root -g root "$DIR"; install -d -m 750 "$HIST"
+  install_timer expire "$NA"; install_timer close "$CU"
+  systemctl daemon-reload; systemctl enable --now ap-live-window-expire.timer ap-live-window-close.timer >/dev/null
+  TMP=$(mktemp "$DIR/.window.XXXXXX")
+  python3 - "$TMP" "$ID" "$NOW" "$NA" "$CU" "$BY" <<'PY'
+import json, sys
+p, i, now, na, cu, by = sys.argv[1:]
+json.dump({"window_id": i, "issued": int(now), "not_after": int(na), "cleanup_until": int(cu), "mode": "live",
+           "authorized_by": by, "purpose": "Part B supervised rehearsal (single window)"}, open(p, "w"))
+PY
+  chmod 644 "$TMP"; mv -f "$TMP" "$WIN"
+  log "START window $ID by $BY: live until $(date -u -d @$NA +%T) UTC, cleanup grace until $(date -u -d @$CU +%T) UTC"
+  audit "$BY" live_window.started "{\"window_id\":\"$ID\",\"not_after\":$NA,\"cleanup_until\":$CU,\"source\":\"ap-live-window\"}"
+  sleep 1; health ;;
+expire)
+  [ -e "$WIN" ] || { log "expire: no window (already closed)"; exit 0; }
+  ID=$(field window_id); TMP=$(mktemp "$DIR/.window.XXXXXX")
+  python3 -c 'import json,sys; w=json.load(open(sys.argv[1])); w["mode"]="cleanup"; json.dump(w, open(sys.argv[2],"w"))' "$WIN" "$TMP"
+  chmod 644 "$TMP"; mv -f "$TMP" "$WIN"
+  log "EXPIRE window $ID: mode=cleanup (backup timer)"
+  audit ap-live-window-timer live_window.timer_expired "{\"window_id\":\"$ID\"}"
+  health ;;
+close|stop)
+  ACT=$1; shift; BY=ap-live-window-timer
+  [ "$ACT" = stop ] && { [ "${1:-}" = --by ] && [ -n "${2:-}" ] || die "stop requires --by <name>"; BY=$2; }
+  if [ -e "$WIN" ]; then
+    ID=$(field window_id); install -d -m 750 "$HIST"; mv -f "$WIN" "$HIST/$ID.json"
+    log "$(echo "$ACT" | tr a-z A-Z) window $ID by $BY: window file removed, deployer locked"
+    audit "$BY" "live_window.$ACT" "{\"window_id\":\"$ID\"}"
+  else
+    log "$ACT: no window file (already locked)"
+  fi
+  remove_timers; health ;;
+status)
+  if [ -e "$WIN" ]; then
+    python3 - "$WIN" <<'PY'
+import json, sys, time
+w = json.load(open(sys.argv[1])); f = lambda t: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(t))
+print(f"window {w['window_id']} mode={w['mode']} by={w.get('authorized_by')}")
+print(f"  live until    {f(w['not_after'])}")
+print(f"  cleanup until {f(w['cleanup_until'])}")
+PY
+  else echo "no live window (locked)"; fi
+  systemctl list-timers 'ap-live-window-*' --all --no-pager 2>/dev/null | sed -n '1,4p'
+  health ;;
+*) sed -n '2,16p' "$0"; exit 2 ;;
+esac

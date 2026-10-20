@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""ap-window-broker — the ONLY privileged path from Autopilot to the live-window controller (AP-AUTOPILOT-01).
+
+Socket-activated (ap-window-broker.socket, Accept=yes): one JSON request per connection on stdin, one JSON reply on
+stdout. The socket is root:apwin 0660; only the autopilot-deployer container joins group apwin. The web container has
+no access. Requests must carry an HMAC-SHA256 (key /etc/aplab/window-broker.key, also provisioned read-only to the
+deployer), a timestamp within 60 s and a single-use nonce.
+
+Allowed actions (nothing else):
+  ping                                   -> broker health
+  open  minutes 1..180, grace 1..30, by  -> /usr/local/sbin/ap-live-window start --by <by> --minutes N --grace M
+  close by                               -> /usr/local/sbin/ap-live-window stop --by <by>
+Fixed argv (no shell), validated parameters, bounded runtime, rate limit (8 privileged requests / 10 min), log to
+/var/log/ap-window-broker.log. It never resets the lab and never touches BIG-IP or other hosts.
+"""
+import hashlib
+import hmac
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+KEY_FILE = "/etc/aplab/window-broker.key"
+STATE = "/var/lib/aplab/window-broker.json"
+LOG = "/var/log/ap-window-broker.log"
+CTL = "/usr/local/sbin/ap-live-window"
+if os.environ.get("AP_WINDOW_BROKER_TEST_DIR"):   # automated tests only (systemd starts the broker with a clean environment)
+    _d = os.environ["AP_WINDOW_BROKER_TEST_DIR"]
+    KEY_FILE, STATE, LOG, CTL = f"{_d}/key", f"{_d}/state.json", f"{_d}/broker.log", f"{_d}/ctl"
+BY_RE = re.compile(r"^[A-Za-z0-9 ._@:()\-]{1,80}$")
+RATE_LIMIT, RATE_WINDOW = 8, 600
+
+
+def log(msg):
+    with open(LOG, "a") as f:
+        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {msg}\n")
+
+
+def reply(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+def canonical(req):
+    return json.dumps({k: v for k, v in req.items() if k != "mac"}, sort_keys=True, separators=(",", ":")).encode()
+
+
+def load_state():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {"nonces": [], "events": []}
+
+
+def main():
+    raw = sys.stdin.readline(4096)
+    try:
+        req = json.loads(raw)
+        assert isinstance(req, dict)
+    except (ValueError, AssertionError):
+        log("REJECT malformed request")
+        reply({"ok": False, "error": "malformed request"})
+    key = open(KEY_FILE, "rb").read().strip()
+    mac = hmac.new(key, canonical(req), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, str(req.get("mac", ""))):
+        log(f"REJECT bad mac action={req.get('action')!r}")
+        reply({"ok": False, "error": "authentication failed"})
+    now = time.time()
+    if not isinstance(req.get("ts"), (int, float)) or abs(now - req["ts"]) > 60:
+        log("REJECT stale timestamp")
+        reply({"ok": False, "error": "stale request"})
+    st = load_state()
+    nonce = str(req.get("nonce", ""))
+    if not re.fullmatch(r"[a-f0-9]{32}", nonce) or nonce in st["nonces"]:
+        log("REJECT nonce replay/invalid")
+        reply({"ok": False, "error": "replayed or invalid nonce"})
+    st["nonces"] = (st["nonces"] + [nonce])[-500:]
+    action = req.get("action")
+    if action == "ping":
+        json.dump(st, open(STATE, "w"))
+        reply({"ok": True, "broker": "ap-window-broker", "version": 1, "window_file": os.path.exists("/etc/aplab/live-window/window.json")})
+    if action not in ("open", "close"):
+        log(f"REJECT action {action!r}")
+        reply({"ok": False, "error": "action not permitted"})
+    st["events"] = [t for t in st["events"] if now - t < RATE_WINDOW]
+    if len(st["events"]) >= RATE_LIMIT:
+        json.dump(st, open(STATE, "w"))
+        log(f"REJECT rate limit action={action}")
+        reply({"ok": False, "error": f"rate limit: at most {RATE_LIMIT} window operations per {RATE_WINDOW // 60} min"})
+    st["events"].append(now)
+    json.dump(st, open(STATE, "w"))
+    by = str(req.get("by", ""))
+    if not BY_RE.fullmatch(by):
+        log("REJECT invalid 'by'")
+        reply({"ok": False, "error": "invalid operator name"})
+    if action == "open":
+        m, g = req.get("minutes"), req.get("grace")
+        if not (isinstance(m, int) and 1 <= m <= 180 and isinstance(g, int) and 1 <= g <= 30):
+            log(f"REJECT open bounds minutes={m!r} grace={g!r}")
+            reply({"ok": False, "error": "minutes must be 1..180 and grace 1..30"})
+        argv, stdin = [CTL, "start", "--by", by, "--minutes", str(m), "--grace", str(g)], "START REHEARSAL WINDOW\n"
+    else:
+        argv, stdin = [CTL, "stop", "--by", by], ""
+    log(f"EXEC {action} by={by!r} " + (f"minutes={req['minutes']} grace={req['grace']}" if action == "open" else ""))
+    try:
+        p = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=90,
+                           env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"})
+    except subprocess.TimeoutExpired:
+        log(f"FAIL {action} timeout")
+        reply({"ok": False, "error": "window controller timed out"})
+    out_lines = [ln for ln in p.stdout.strip().splitlines() if ln.strip()]
+    health = None
+    for ln in reversed(out_lines):
+        try:
+            health = json.loads(ln)
+            break
+        except ValueError:
+            continue
+    errs = [ln for ln in p.stderr.strip().splitlines() if "REFUSED" in ln or "START" in ln or "STOP" in ln]
+    log(f"{'OK' if p.returncode == 0 else 'FAIL'} {action} rc={p.returncode} {errs[-1][:200] if errs else ''}")
+    reply({"ok": p.returncode == 0, "rc": p.returncode, "health": health, "message": (errs[-1] if errs else "")[:300]})
+
+
+if __name__ == "__main__":
+    main()

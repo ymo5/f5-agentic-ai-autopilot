@@ -1,0 +1,7 @@
+# Observe collector devices — one per line: label  host  pin_var  keychain_service
+#   label             letters, digits, _ . -  (≤ 40); identifies the device's snapshots in Autopilot
+#   host              management address the collector connects to (read-only GETs only)
+#   pin_var           variable in f5-tls-pins.env holding the device's pinned public key (sha256//...)
+#   keychain_service  macOS Keychain item with the read-only API account (never stored here)
+# Copy to config/observe-devices.conf and replace the example values.
+BIGIP-1   192.0.2.16   BIGIP_PIN   f5-autopilot-bigip-api

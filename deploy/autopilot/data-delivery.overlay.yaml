@@ -1,0 +1,14 @@
+# AI Data Delivery — OPT-IN configuration overlay (integration increment 2). NOT active until merged into autopilot.yaml
+# under `design:` by the Autopilot owner as a separately approved enablement step (Approval A).
+# Without this block Autopilot behaves exactly as before (no D-006 findings, no AI Data Delivery package).
+# With it: Assess raises D-006 for the fronted data services, Recommend offers the cumulative "data" package
+# (AI Security declaration + 3 HTTP virtual servers), and the after-data validation profile can run.
+design:
+  data_delivery:          # VIPs in the approved deployer range 10.50.10.96/28; members in 10.50.20.0/24
+    s3:  {vip: 10.50.10.103, port: 8333,  members: ["10.50.20.41:8333"],  host: s3.aplab.internal}
+    rag: {vip: 10.50.10.104, port: 6333,  members: ["10.50.20.40:6333"],  host: qdrant.aplab.internal, collection: fraud_patterns}
+    llm: {vip: 10.50.10.105, port: 11434, members: ["10.50.20.45:11434"], host: llm.aplab.internal, model: "qwen2.5:3b"}
+    vlans: [vlan_agent, vlan_backend]   # the HTTP data VIPs listen ONLY on these isolated lab VLANs (no uplink); BIG-IP_C has no other VLAN
+validation:
+  data:                   # after-data validation profile settings (read-only checks; no generation, no writes)
+    s3_credentials_env: null   # optional: name of an env var pair prefix for an approved read-only S3 identity; null = skip authorised read

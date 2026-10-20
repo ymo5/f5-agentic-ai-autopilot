@@ -1,0 +1,74 @@
+#!/bin/bash
+# ap-dep-apply — the ONLY action Autopilot's deployment engine may perform on this host.
+# Invoked via SSH forced command (user apdeploy, key restricted to from="192.0.2.60") through sudo.
+# Allowed: status | profile baseline|delivery|security | replica stop|start 1|2 (ai-services) | probe direct-mcp (agent-b)
+set -euo pipefail
+APLAB_ROOT="${APLAB_ROOT:-/opt/aplab}"
+APLAB_ETC_ROOT="${APLAB_ETC_ROOT:-/etc/aplab}"
+ROLE=$(cat "$APLAB_ETC_ROOT/role")
+P="$APLAB_ROOT/profiles/$ROLE"
+CMD="${SSH_ORIGINAL_COMMAND:-$*}"
+LOG="${APLAB_LOG:-/var/log/ap-dep-apply.log}"
+log(){ echo "$(date -u +%FT%TZ) [$ROLE] $*" >> "$LOG"; }
+deny(){ log "DENIED: $CMD"; echo '{"ok":false,"error":"command not permitted"}'; exit 2; }
+sha(){ [ -f "$1" ] && sha256sum "$1" | cut -c1-16 || echo absent; }
+status(){
+  local prof; prof=$(cat "$APLAB_ETC_ROOT/profile" 2>/dev/null || echo unknown)
+  case $ROLE in
+    ai-services) printf '{"ok":true,"role":"%s","profile":"%s","zone":"%s","lockdown":"%s","replicas":"%s"}\n' "$ROLE" "$prof" \
+      "$(grep -E '^(agent-b|mcp-risk|mcp-intel) ' "$APLAB_ROOT/src/deploy/ai-services/coredns/db.aplab.internal" | awk '{print $1"="$NF}' | tr '\n' ' ')" \
+      "$(sha /etc/nftables.d/zz-lockdown.nft)" "$(docker ps --format '{{.Names}}' | grep -oE 'mcp-risk-[12]' | sort | tr '\n' ' ')" ;;
+    *) printf '{"ok":true,"role":"%s","profile":"%s","env_sha":"%s"}\n' "$ROLE" "$prof" "$(sha "$APLAB_ROOT/src/deploy/$ROLE/.env")" ;;
+  esac
+}
+apply(){
+  local prof=$1
+  case $ROLE in
+    ai-services)
+      sed "s/SERIAL/$(date +%s)/" "$P/$prof/db.aplab.internal" > /opt/aplab/src/deploy/ai-services/coredns/db.aplab.internal.new
+      mv /opt/aplab/src/deploy/ai-services/coredns/db.aplab.internal.new /opt/aplab/src/deploy/ai-services/coredns/db.aplab.internal
+      if [ -f "$P/$prof/zz-lockdown.nft" ]; then install -m 644 "$P/$prof/zz-lockdown.nft" /etc/nftables.d/zz-lockdown.nft; else rm -f /etc/nftables.d/zz-lockdown.nft; fi
+      nft -c -f /etc/nftables.conf && systemctl restart nftables ;;
+    agent-a|agent-b)
+      install -m 640 "$P/$prof/agent.env" "$APLAB_ROOT/src/deploy/$ROLE/.env"
+      if [ "$ROLE" = agent-b ]; then
+        local pin_file="${AGENT_B_IMAGE_PIN:-$APLAB_ROOT/state/agent-b-image}"
+        [ -r "$pin_file" ] || { log "REFUSED: Agent B image pin missing or unreadable"; echo '{"ok":false,"error":"Agent B image pin missing or unreadable"}'; exit 2; }
+        local pinned; pinned=$(tr -d '\r\n' < "$pin_file")
+        case "$pinned" in
+          aplab-py:agent-b-tls-*@sha256:*) export AGENT_B_IMAGE="$pinned" ;;
+          *) log "REFUSED: invalid Agent B image pin"; echo '{"ok":false,"error":"invalid Agent B image pin"}'; exit 2 ;;
+        esac
+      fi
+      (cd "$APLAB_ROOT/src/deploy/$ROLE" && docker compose up -d >/dev/null 2>&1) ;;
+  esac
+  echo "$prof" > "$APLAB_ETC_ROOT/profile"
+  log "APPLIED profile $prof"
+  status
+}
+fingerprint(){
+  [ "$ROLE" = agent-b ] || deny
+  local container="agent-b-agent-b-1" image_id container_id started source_sha self_sha profile
+  self_sha=$(sha256sum "$(readlink -f "$0")" | awk '{print $1}')
+  container_id=$(docker inspect -f '{{.Id}}' "$container")
+  image_id=$(docker inspect -f '{{.Image}}' "$container")
+  started=$(docker inspect -f '{{.State.StartedAt}}' "$container")
+  source_sha=$(docker exec "$container" sha256sum /opt/aplab/services/agent_b/mcp_tools.py | awk '{print $1}')
+  profile=$(cat "$APLAB_ETC_ROOT/profile" 2>/dev/null || echo unknown)
+  printf '{"ok":true,"role":"%s","profile":"%s","container_id":"%s","image_id":"%s","started_at":"%s","mcp_tools_sha256":"%s","ap_dep_apply_sha256":"%s","executable":"%s"}\n' \
+    "$ROLE" "$profile" "$container_id" "$image_id" "$started" "$source_sha" "$self_sha" "$(readlink -f "$0")"
+}
+case "$CMD" in
+  status) status ;;
+  "status fingerprint") fingerprint ;;
+  "profile baseline"|"profile delivery"|"profile security") apply "${CMD#profile }" ;;
+  "replica stop 1"|"replica stop 2"|"replica start 1"|"replica start 2")
+    [ "$ROLE" = ai-services ] || deny
+    set -- $CMD; (cd /opt/aplab/src/deploy/ai-services && docker compose "$2" "mcp-risk-$3" >/dev/null 2>&1)
+    log "REPLICA $2 $3"; status ;;
+  "probe direct-mcp")
+    [ "$ROLE" = agent-b ] || deny
+    code=$(curl -s -m 3 -o /dev/null -w '%{http_code}' http://10.50.20.31:8000/healthz || true)
+    log "PROBE direct-mcp -> ${code:-000}"; printf '{"ok":true,"probe":"agent-b -> 10.50.20.31:8000","http_code":"%s"}\n' "${code:-000}" ;;
+  *) deny ;;
+esac

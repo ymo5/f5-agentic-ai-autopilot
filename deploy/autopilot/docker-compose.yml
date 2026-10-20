@@ -1,0 +1,54 @@
+# Autopilot host — two isolated services sharing only the assessment database (group apdb, gid 10010):
+#   autopilot           web/UI/API/discovery/LLM assistant — uid 10001, NO device credentials, cannot deploy
+#   autopilot-deployer  approval-gated deployment engine   — uid 10002, sole holder of device credentials,
+#                       loopback-only (127.0.0.1:8100). Live only inside a time-bounded window: the root-owned file
+#                       /etc/aplab/live-window/window.json (ap-live-window), mounted read-only; absent => locked
+#
+# Installation-specific values come from deploy/autopilot/.env (copy .env.example). Secrets live OUTSIDE the repository:
+#   ${APLAB_SECRETS}/autopilot.env       web secrets (see autopilot.env.example)
+#   ${APLAB_SECRETS}/deployer/           deployer credential files (see docs/CONFIGURATION.md)
+x-common: &common
+  image: aplab-py:0.1
+  build: {context: ../.., dockerfile: deploy/common/Dockerfile, network: host}
+  network_mode: host
+  restart: unless-stopped
+  environment: &env
+    AUTOPILOT_CONFIG: /etc/autopilot/autopilot.yaml
+    AUTOPILOT_DB: /var/lib/autopilot/autopilot.db
+    AS3_SCHEMA: /opt/aplab/packages/vendor/as3-schema-3.56.0-10.json
+    AUTOPILOT_PKI: /opt/aplab/pki
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+services:
+  autopilot:
+    <<: *common
+    user: "10001:10010"
+    command: ["sh", "-c", "umask 007; exec python -m autopilot.web"]
+    env_file: ["${APLAB_SECRETS:-/opt/aplab/secrets}/autopilot.env"]
+    environment:
+      <<: *env
+      BIND_HOST: ${AUTOPILOT_BIND_HOST:-127.0.0.1}
+      BIND_PORT: ${AUTOPILOT_BIND_PORT:-8000}
+      AUTOPILOT_SNAPSHOTS: /var/lib/autopilot/snapshots
+      AUTOPILOT_DEPLOYER_URL: http://127.0.0.1:8100
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:3b}
+    volumes: ["${AUTOPILOT_CONFIG_FILE:-./autopilot.local.yaml}:/etc/autopilot/autopilot.yaml:ro", "${AUTOPILOT_DATA:-/var/lib/autopilot}:/var/lib/autopilot",
+              "${APLAB_PKI:-/opt/aplab/pki}:/opt/aplab/pki:ro"]
+    depends_on: [autopilot-deployer]
+
+  autopilot-deployer:
+    <<: *common
+    user: "10002:10010"
+    command: ["sh", "-c", "umask 007; exec python -m autopilot.deployer.service"]
+    group_add: ["10020"]          # apwin: may connect to the root-owned ap-window-broker socket (web container may not)
+    environment:
+      <<: *env
+      DEPLOYER_LIVE_WINDOW: /run/live-window/window.json
+      DEPLOYER_WINDOW_BROKER: /run/ap-window/broker.sock
+      DEPLOYER_SECRETS: /run/secrets/deployer
+      OTEL_SERVICE_NAME: autopilot-deployer
+    volumes: ["${AUTOPILOT_CONFIG_FILE:-./autopilot.local.yaml}:/etc/autopilot/autopilot.yaml:ro", "${AUTOPILOT_DATA:-/var/lib/autopilot}:/var/lib/autopilot",
+              "${APLAB_PKI:-/opt/aplab/pki}:/opt/aplab/pki:ro", "${APLAB_SECRETS:-/opt/aplab/secrets}/deployer:/run/secrets/deployer:ro",
+              "/etc/aplab/live-window:/run/live-window:ro", "/run/ap-window:/run/ap-window"]

@@ -1,0 +1,80 @@
+# Autopilot configuration: approved discovery scope and lab design parameters.
+# Contains no credentials and no ground truth.
+observe:
+  bigip_mgmt: 192.0.2.16
+  mode: snapshot            # snapshot = uploaded by operator workstation (read-only GETs); live requires a read-only account
+enumerate:
+  scope_cidrs: [10.50.10.0/24, 10.50.20.0/24]
+  approved_hosts: [192.0.2.63]
+  ports: [53, 443, 4318, 6333, 8000, 8080, 8333, 9000, 11434]
+  dns_server: 10.50.20.53
+  dns_zone: aplab.internal
+  inventory:
+    - {key: "bigip:192.0.2.16", kind: adc, name: "BIG-IP_C (approved ADC)", attrs: {mgmt_address: 192.0.2.16, source: "owner-provided inventory"}}
+ingest:
+  jaeger_url: http://192.0.2.63:16686
+  lookback: 3h
+  limit: 500
+  exclude_services: [autopilot]            # the discovery system must not discover itself
+  exclude_peers: [10.50.10.5, 10.50.20.5, 192.0.2.60]
+validation_identities:       # explicit, documented validation identity (certificate CN) and its least-privilege tools
+  ap-validator: [score_transaction, model_info]
+identities:                  # OTel service -> mTLS identity (certificate CN) used by the security package
+  agent-b-risk-assessment: agent-b
+  agent-a-fraud-investigation: agent-a
+design:
+  tenant: AP_AI
+  if_backend: "1.1"
+  if_agent: "1.2"
+  vlan_backend: vlan_backend
+  vlan_agent: vlan_agent
+  self_backend: 10.50.20.10
+  self_agent: 10.50.10.10
+  a2a_vip: 10.50.10.100
+  mcp_vips: [10.50.10.101, 10.50.10.102]
+  agent_backend_addresses: {"10.50.10.22": "10.50.20.22"}
+  ntp_servers: [0.pool.ntp.org, 1.pool.ntp.org]
+  cert_object: /Common/aplab-wildcard.crt
+  key_object: /Common/aplab-wildcard.key
+  ca_bundle_object: /Common/aplab-ca.crt
+  rate_limit_per_min: 120
+  front_doors:            # front-door names published by the ai-services DNS profile (deploy/profiles/ai-services/*)
+    a2a: {name: agent-b.aplab.internal, vip: 10.50.10.100}
+    mcp:                  # keyed by the MCP server name reported in initialize/server/discover
+      risk-scoring: {name: mcp-risk.aplab.internal, vip: 10.50.10.101}
+      fraud-intel: {name: mcp-intel.aplab.internal, vip: 10.50.10.102}
+  profiles:               # observable state each host profile must produce before validation may start
+    baseline:
+      dns: {agent-b.aplab.internal: 10.50.10.22, mcp-risk.aplab.internal: 10.50.20.31, mcp-intel.aplab.internal: 10.50.20.33}
+      agents:
+        agent-a: {healthz: "http://10.50.10.21:8080/healthz", expect: {agent_b_url: "http://10.50.10.22:9000"}}
+        agent-b: {healthz: "http://10.50.10.22:9000/healthz", expect: {mcp_risk_url: "http://10.50.20.31:8000/mcp",
+                                                                     mcp_intel_url: "http://10.50.20.33:8000/mcp"}}
+      card: {url: "http://10.50.10.22:9000/.well-known/agent-card.json", advertises_host: 10.50.10.22}
+    delivery: &front_door_profile
+      dns: {agent-b.aplab.internal: 10.50.10.100, mcp-risk.aplab.internal: 10.50.10.101, mcp-intel.aplab.internal: 10.50.10.102}
+      agents:
+        agent-a: {healthz: "http://10.50.10.21:8080/healthz", expect: {agent_b_url: "https://agent-b.aplab.internal"}}
+        agent-b: {healthz: "http://10.50.10.22:9000/healthz", expect: {mcp_risk_url: "https://mcp-risk.aplab.internal/mcp",
+                                                                     mcp_intel_url: "https://mcp-intel.aplab.internal/mcp"}}
+      card: {url: "http://10.50.10.22:9000/.well-known/agent-card.json", advertises_host: agent-b.aplab.internal}
+    security: *front_door_profile
+convergence:              # post-change readiness barrier (deployer); never retries a deployment
+  timeout_s: 180
+  poll_s: 2
+  dns_server: 10.50.20.53
+  dns_cache_hold_max_s: 120
+validation:
+  agent_a_api: http://10.50.10.21:8080
+  agent_b_health: http://10.50.10.22:9000/healthz
+fraud_app:                # customer fraud application (Phase 1 experience) — live calls go to the real lab services
+  agent_a_api: http://10.50.10.21:8080
+  health:                 # read-only reachability checks shown in the application topology
+    - {id: agent-a, name: "Agent A — fraud investigation (A2A client)", url: "http://10.50.10.21:8080/healthz", role: agent, otel: agent-a-fraud-investigation}
+    - {id: agent-b, name: "Agent B — risk assessment (A2A server)", url: "http://10.50.10.22:9000/healthz", role: agent, otel: agent-b-risk-assessment}
+    - {id: mcp-risk-1, name: "MCP risk-scoring, replica 1", url: "http://10.50.20.31:8000/healthz", role: mcp, otel: mcp-risk-scoring}
+    - {id: mcp-risk-2, name: "MCP risk-scoring, replica 2", url: "http://10.50.20.32:8000/healthz", role: mcp}
+    - {id: mcp-intel, name: "MCP fraud-intel (RAG + S3)", url: "http://10.50.20.33:8000/healthz", role: mcp, otel: mcp-fraud-intel}
+    - {id: llm, name: "LLM (Ollama, qwen2.5:3b)", url: "http://10.50.20.45:11434/api/version", role: model}
+    - {id: qdrant, name: "Vector DB (Qdrant)", url: "http://10.50.20.40:6333/healthz", role: data}
+    - {id: jaeger, name: "Trace store (Jaeger)", url: "http://192.0.2.63:16686/api/services", role: observability}

@@ -1,0 +1,31 @@
+receivers:
+  otlp/mgmt:
+    protocols:
+      grpc: {endpoint: 192.0.2.63:4317}
+      http: {endpoint: 192.0.2.63:4318}
+  otlp/backend:
+    protocols:
+      grpc: {endpoint: 10.50.20.63:4317}
+      http: {endpoint: 10.50.20.63:4318}
+processors:
+  memory_limiter: {check_interval: 1s, limit_mib: 512}
+  batch: {timeout: 2s}
+exporters:
+  otlp/jaeger:
+    endpoint: 127.0.0.1:14317
+    tls: {insecure: true}
+  file/archive:
+    path: /var/lib/otel/traces.jsonl
+    rotation: {max_megabytes: 100, max_backups: 5}
+extensions:
+  health_check: {endpoint: 127.0.0.1:13133}
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp/mgmt, otlp/backend]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, file/archive]

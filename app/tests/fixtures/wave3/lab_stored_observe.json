@@ -1,0 +1,41 @@
+{
+ "_source": "Stored Observe evidence 5e5f1b912c05466f (assessment b9c1c5a0 \"NEw Test\", 2026-10-13 21:48:19 UTC, origin \"live read-only (ap-observer)\"), copied offline from the workstation backup wave2a-web-20261014T223457Z. Unmodified subset of the normalized model.",
+ "evidence_id": "5e5f1b912c05466f",
+ "mgmt": "192.0.2.16",
+ "model": {
+  "device": {
+   "as3_installed": true,
+   "build": "0.0.20",
+   "edition": "Point Release 3",
+   "hostname": "big-ip.c",
+   "provisioned": {
+    "ltm": "nominal"
+   },
+   "version": "21.1.0.3"
+  },
+  "pools": [],
+  "self_ips": [
+   {
+    "address": "10.50.20.10",
+    "name": "/Common/self_backend",
+    "vlan": "/Common/vlan_backend"
+   },
+   {
+    "address": "10.50.10.10",
+    "name": "/Common/self_agent",
+    "vlan": "/Common/vlan_agent"
+   }
+  ],
+  "virtuals": [],
+  "vlans": [
+   {
+    "interfaces": [],
+    "name": "/Common/vlan_agent"
+   },
+   {
+    "interfaces": [],
+    "name": "/Common/vlan_backend"
+   }
+  ]
+ }
+}

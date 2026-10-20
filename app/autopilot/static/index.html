@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>F5 Agentic AI Autopilot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/cytoscape.min.js"></script>
+</head>
+<body>
+<div id="login" class="modal hidden"><div class="modal-body narrow">
+  <h2>F5 Agentic AI Autopilot</h2><p class="muted small">Sign in with your SE (operator), approver or viewer account.</p>
+  <input id="lu" placeholder="username" autocomplete="username"><input id="lp" type="password" placeholder="password" autocomplete="current-password">
+  <p><button class="primary" id="lb">Sign in</button> <span id="lerr" class="muted small"></span></p></div></div>
+
+<header class="topbar">
+  <div class="brand"><img class="logo" src="/static/logo.svg" alt="Autopilot logo">Agentic AI Autopilot</div>
+  <nav class="toplinks">
+    <a data-go="demo">Demo guide</a><a class="nav-fraud" data-go="fraud">Fraud application</a><a class="nav-control" data-go="control">Control center</a><a class="nav-aiops" data-go="aiops">AI Operations</a>
+  </nav>
+  <div class="ctx" id="ctx"></div>
+  <div class="spacer"></div>
+  <div class="viewtoggle" title="Executive view: outcomes and narrative. Technical view: every detail, journal and attribute.">
+    <button data-view="exec">Executive</button><button data-view="tech">Technical</button></div>
+  <button id="refresh-now" title="Refresh now. Background updates never close what you have expanded and pause while you select text.">⟳</button><span class="muted refresh-state" id="refresh-state"></span>
+  <span class="pill" id="llm"></span>
+  <span class="pill" id="win" title="Live deployment window (owner-controlled)"></span>
+  <div class="account">
+    <button id="acct" aria-haspopup="true"><span class="avatar" id="avatar">?</span><span id="acct-name">not signed in</span> ▾</button>
+    <div class="menu hidden" id="acct-menu">
+      <div class="who"><b id="m-user"></b><br><span class="small muted" id="m-role"></span></div>
+      <button id="m-audit">Audit log</button>
+      <button id="m-switch">Switch account…</button>
+      <button id="m-logout">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<nav class="stages" id="stages"></nav>
+<div id="progress"></div>
+
+<main>
+<!-- DEMO GUIDE -->
+<section class="page" id="p-demo">
+  <div class="hero">
+    <div><h1>Agentic AI, delivered and secured by F5</h1>
+      <p class="lead" id="demo-lead"></p></div>
+    <div class="hero-side" id="demo-state"></div>
+  </div>
+  <div class="experiences" id="demo-exp"></div>
+  <div class="grid2" style="margin-top:12px">
+    <div class="card"><h4>Why F5 for agentic AI</h4><ul class="clean" id="demo-value"></ul></div>
+    <div class="card"><h4>Safe, repeatable demo reset</h4><p class="small">
+      <b>Start a new assessment</b> clears only the discovery workspace (Discover page). <b>Reset Demo Environment</b> (approver, inside a
+      live window or its cleanup grace) removes tenant AP_AI from BIG-IP_C and returns the three lab hosts to their unprotected baseline,
+      then verifies it — from the <a data-go="control">Control center</a>. History and audit are always kept.</p>
+      <p><button id="demo-new" data-need="operator">Start a new demo assessment</button></p></div>
+  </div>
+</section>
+
+<!-- FRAUD APPLICATION (the customer's app) -->
+<section class="page" id="p-fraud">
+  <div class="bank"><div><span class="banklogo">◆</span> <b>Meridian Trust</b> <span class="muted">· Fraud Operations Center · synthetic bank, synthetic customers</span></div>
+    <div class="prov"><span class="chip c-input">scenario input</span><span class="chip c-live">live measured</span><span class="chip c-na">unavailable</span>
+      <span class="chip c-sim">simulated (none in live mode)</span></div></div>
+  <div class="fraud-grid">
+    <aside class="side" id="fr-scen"></aside>
+    <div>
+      <div class="card" id="fr-detail"><p class="muted">Select a scenario.</p></div>
+      <div class="card" id="fr-result"></div>
+      <div class="card tech-only" id="fr-timeline"></div>
+      <div class="card exec-only" id="fr-story"></div>
+    </div>
+    <aside class="side">
+      <h3>Application topology <span class="small muted">(live checks + last run)</span></h3>
+      <div id="fr-topo"></div><p><button id="fr-health">Re-check reachability</button></p>
+      <h3>Recent investigations</h3><div id="fr-runs" class="small"></div>
+      <h3>Same scenario, before vs after F5</h3><div id="fr-cmp" class="small"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- CONTROL CENTER -->
+<section class="page" id="p-aiops"><div id="aiops"></div></section>
+<section class="page" id="p-control">
+  <div class="grid3" id="cc-top"></div>
+  <div class="grid2">
+    <div class="card" id="cc-window"></div>
+    <div class="card" id="cc-scope"></div>
+  </div>
+  <div class="grid2">
+    <div class="card" id="cc-diag"></div>
+    <div class="card" id="cc-history"></div>
+  </div>
+</section>
+
+<!-- 1 DISCOVER -->
+<section class="page" id="p-discover">
+  <div class="toolbar">
+    <button class="primary" id="d-all" data-need="operator">Run discovery (Observe · Enumerate · Ingest)</button>
+    <button data-method="observe" data-need="operator" title="Read BIG-IP configuration through the read-only account">Observe</button>
+    <button id="d-obs-snap" data-need="operator" title="Normalize the latest snapshot of every BIG-IP uploaded by the operator-run collector (scripts/observe-collect.sh). Autopilot itself contacts no device.">Observe from uploaded snapshots</button>
+    <button data-method="enumerate" data-need="operator" title="Approved scope only — see scope below">Enumerate</button>
+    <button data-method="ingest" data-need="operator" title="Correlate OpenTelemetry traces">Ingest</button>
+    <span class="spacer"></span>
+    <button id="d-new" data-need="operator">New assessment</button>
+    <button id="d-reset" class="danger" data-need="operator" title="Clears only this assessment workspace; never touches BIG-IP, hosts or the audit log">Reset assessment</button>
+  </div>
+  <div class="srcs" id="d-sources"></div>
+  <div class="dviews" role="tablist"><button data-dview="topology" class="on">Topology</button><button data-dview="services">Services <span class="cnt" id="dv-svc"></span></button>
+    <button data-dview="changes">Changes <span class="cnt alertcnt" id="dv-chg"></span></button><span class="small muted" id="dv-hint"></span></div>
+  <div class="split">
+    <div class="dleft">
+    <div id="d-services" class="dpanel hidden"></div>
+    <div id="d-changes" class="dpanel hidden"></div>
+    <div class="graph-wrap">
+      <div class="gtools">
+        <button id="g-fit" title="Fit to view">Fit</button><button id="g-in">＋</button><button id="g-out">－</button>
+        <button id="g-relayout">Re-layout</button><button id="g-filter">Filter ▾</button><button id="g-full" title="Full-screen topology (Esc to exit)">⤢ Full screen</button>
+        <span class="sep"></span><span class="small muted" style="align-self:center">edges by</span><button id="g-color-path" class="on" title="Colour edges by observed path (direct vs through BIG-IP)">path</button><button id="g-color-proto" title="Colour edges by protocol (A2A, MCP, LLM, data)">protocol</button>
+        <input id="g-search" placeholder="search name / address" style="width:190px;margin:0;padding:4px 8px;font-size:12px">
+      </div>
+      <div class="gfilter hidden" id="g-filters"></div>
+      <div id="graph"></div>
+      <div id="g-tip" class="gtip hidden"></div>
+      <div id="g-panel" class="gpanel hidden" aria-live="polite"></div>
+      <div id="g-empty" class="empty">No assets discovered yet.<br>Run discovery to start building the AI dependency graph.</div>
+      <div class="legend" id="g-legend"></div>
+    </div>
+    </div>
+    <aside class="side">
+      <h3>Describe <span class="small muted">(SE natural language → AI interpretation)</span></h3>
+      <textarea id="d-text" placeholder="Describe the customer's AI environment: agents, tools, data stores, models, how traffic flows and which controls they believe exist."></textarea>
+      <button class="primary" id="d-describe" data-need="operator">Interpret with AI</button>
+      <div id="d-ai"></div>
+      <h3>Enumerate scope</h3><div id="d-scope" class="small"></div>
+      <h3>Coverage gaps</h3><ul id="d-gaps" class="clean small"></ul>
+      <h3>Selection</h3><div id="d-detail" class="small muted">Click any service or connection in the topology: its details open in a panel docked to the right of the graph.</div>
+    </aside>
+  </div>
+</section>
+
+<!-- 2 ASSESS -->
+<section class="page" id="p-assess">
+  <div class="toolbar"><button id="a-run" data-need="operator">Re-run assessment</button>
+    <select id="a-class"><option value="">All classes</option><option value="contradicted_claim">Contradicted customer claims</option>
+      <option value="confirmed_vulnerability">Confirmed vulnerabilities</option><option value="architectural_gap">Architectural gaps</option>
+      <option value="inferred_risk">Inferred risks</option></select>
+    <select id="a-cat"><option value="">Delivery + Security</option><option value="delivery">AI Delivery</option><option value="security">AI Security</option></select>
+    <span class="muted small">Findings are grouped by issue type; each group lists affected endpoints, its evidence basis and which package addresses it.</span></div>
+  <div class="tiles" id="a-tiles"></div><div id="a-overview"></div><div id="a-list"></div>
+</section>
+
+<!-- 3 RECOMMEND -->
+<section class="page" id="p-recommend">
+  <div class="toolbar"><button class="primary" id="r-gen" data-need="operator">Generate recommendations</button>
+    <span class="muted small">Packages come only from the vetted F5 pattern library, parameterised with discovered facts; every AS3 declaration is schema-validated.</span></div>
+  <div id="r-list"></div>
+  <div id="r-advisory"></div>
+</section>
+
+<!-- 4 APPROVE -->
+<section class="page" id="p-approve"><div id="ap-list"></div></section>
+
+<!-- 5 DEPLOY -->
+<section class="page" id="p-deploy">
+  <div class="card note" id="dp-env"></div>
+  <div id="dp-list"></div>
+</section>
+
+<!-- 6 VALIDATE -->
+<section class="page" id="p-validate">
+  <div class="toolbar"><select id="v-profile"><option value="before">before — direct paths (baseline)</option>
+    <option value="after-delivery">after AI Delivery</option><option value="after-security">after AI Security</option></select>
+    <button class="primary" id="v-run" data-need="operator">Run validation suite</button><span class="muted small" id="v-hint"></span></div>
+  <div id="v-levels"></div>
+  <div id="v-list"></div>
+</section>
+
+<!-- 7 OBSERVE -->
+<section class="page" id="p-observe">
+  <div id="o-overview"></div>
+  <div class="toolbar">Compare <select id="o-before" style="max-width:520px" aria-label="before assessment"></select> → <select id="o-after" style="max-width:520px" aria-label="after assessment"></select>
+    <button class="primary" id="o-cmp">Before / after</button><button id="o-rep">Customer report</button></div>
+  <div class="toolbar"><input id="o-q" placeholder="filter assessments (name, date, state)" style="width:260px;margin:0">
+    <label class="small"><input type="checkbox" id="o-complete"> complete discovery only</label>
+    <label class="small">from <input type="date" id="o-from" style="margin:0"></label><label class="small">to <input type="date" id="o-to" style="margin:0"></label>
+    <span class="muted small">A verified before/after needs comparable discovery on both sides and a successful, linked F5 deployment in between.</span></div>
+  <div id="o-sugg" style="margin-bottom:10px"></div>
+  <div id="o-cmpout"></div>
+  <h3>Observed communication paths (current assessment)</h3><div id="o-paths"></div>
+</section>
+
+<!-- AUDIT (account menu) -->
+<section class="page" id="p-audit">
+  <div class="toolbar"><select id="au-cat"><option value="">All categories</option></select><select id="au-actor"><option value="">All actors</option></select>
+    <input id="au-q" placeholder="search action / detail" style="width:240px;margin:0"><button id="au-go">Filter</button>
+    <span class="muted small">Append-only; nothing here can be edited or deleted.</span></div>
+  <div id="au-list"></div>
+</section>
+</main>
+
+<div id="modal" class="modal hidden"><div class="modal-body"><button class="close" id="modal-x">×</button><div id="modal-c"></div></div></div>
+<div id="toast"></div>
+<script src="/static/ui-core.js"></script>
+<script src="/static/aiops.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

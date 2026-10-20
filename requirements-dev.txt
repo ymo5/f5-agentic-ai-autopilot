@@ -1,0 +1,5 @@
+# Test / development dependencies (runtime pins are in deploy/common/requirements.txt)
+-r deploy/common/requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pyflakes==4.0.3

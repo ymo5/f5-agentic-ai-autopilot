@@ -1,0 +1,4 @@
+# security profile: MCP backends accept connections only from the BIG-IP backend self IP
+insert rule inet ap_base input ip daddr 10.50.20.31 tcp dport 8000 ip saddr != 10.50.20.10 drop
+insert rule inet ap_base input ip daddr 10.50.20.32 tcp dport 8000 ip saddr != 10.50.20.10 drop
+insert rule inet ap_base input ip daddr 10.50.20.33 tcp dport 8000 ip saddr != 10.50.20.10 drop

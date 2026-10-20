@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""ap-trafficgen-broker — the ONLY privileged path from Autopilot to the Traffic Generator controller (AP-AUTOPILOT-01).
+
+Modelled on ap-window-broker. Socket-activated (ap-trafficgen-broker.socket, Accept=yes): one JSON request per connection
+on stdin, one JSON reply on stdout. The socket is root:aptgctl 0660; only the autopilot-deployer container joins group
+aptgctl (gid 10021). The web container has no access. Requests must carry an HMAC-SHA256 (key
+/etc/aplab/trafficgen-broker.key, also provisioned read-only to the deployer), a timestamp within 60 s and a single-use nonce.
+
+Allowed actions (nothing else):
+  ping                     -> broker health + preset ids
+  status                   -> container state (docker inspect, fixed argv) + current / recent runs started through the broker
+  start  preset, by        -> /usr/local/sbin/ap-trafficgen <FIXED ARGV OF THE PRESET>   (refused if a run is active)
+  stop   by                -> /usr/local/sbin/ap-trafficgen stop, then archive           (graceful stop file, then docker stop)
+The preset table below is the authority: the caller sends only a preset id. No shell, no caller-supplied argument reaches
+ap-trafficgen. One operation at a time (exclusive lock), rate limits (6 starts / hour, 20 mutating requests / 10 min),
+log to /var/log/ap-trafficgen-broker.log. It never touches BIG-IP, other hosts, Autopilot, credentials or the generator image.
+"""
+import fcntl
+import hashlib
+import hmac
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+KEY_FILE = "/etc/aplab/trafficgen-broker.key"
+STATE = "/var/lib/aplab/trafficgen-broker.json"
+LOG = "/var/log/ap-trafficgen-broker.log"
+LOCK = "/run/lock/ap-trafficgen-broker.lock"
+CTL = "/usr/local/sbin/ap-trafficgen"
+DOCKER = "/usr/bin/docker"
+if os.environ.get("AP_TG_BROKER_TEST_DIR"):        # automated tests only (systemd starts the broker with a clean environment)
+    _d = os.environ["AP_TG_BROKER_TEST_DIR"]
+    KEY_FILE, STATE, LOG, LOCK, CTL, DOCKER = (f"{_d}/key", f"{_d}/state.json", f"{_d}/broker.log", f"{_d}/broker.lock",
+                                               f"{_d}/ctl", f"{_d}/docker")
+NAME = "ap-trafficgen"
+BY_RE = re.compile(r"^[A-Za-z0-9 ._@:()\-]{1,80}$")
+START_LIMIT, START_WINDOW = 6, 3600
+MUTATE_LIMIT, MUTATE_WINDOW = 20, 600
+
+# preset id -> (fixed ap-trafficgen argv, bounded seconds, max requests per minute, workloads). Reviewed with the owner;
+# MCP and S3 workloads are intentionally absent (they need dedicated identities / credentials).
+PRESETS = {
+    "a2a-discovery-5m":  (["start", "300", "--only", "pa_a2a_card", "--max-rpm", "2"], 300, 2, ["pa_a2a_card"]),
+    "rag-retrieval-10m": (["start", "600", "--only", "pa_vector_query", "--max-rpm", "4"], 600, 4, ["pa_vector_query"]),
+    "embeddings-10m":    (["start", "600", "--only", "pa_embed", "--max-rpm", "2"], 600, 2, ["pa_embed"]),
+    "ai-data-path-15m":  (["start", "900", "--only", "pa_a2a_card,pa_vector_query,pa_embed", "--max-rpm", "4"], 900, 4,
+                          ["pa_a2a_card", "pa_vector_query", "pa_embed"]),
+    "llm-chat-sample":   (["once", "--only", "pa_chat_small"], 120, 1, ["pa_chat_small"]),
+}
+
+
+def log(msg):
+    with open(LOG, "a") as f:
+        f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {msg}\n")
+
+
+def reply(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+def canonical(req):
+    return json.dumps({k: v for k, v in req.items() if k != "mac"}, sort_keys=True, separators=(",", ":")).encode()
+
+
+def load_state():
+    try:
+        st = json.load(open(STATE))
+        return {"nonces": st.get("nonces", []), "starts": st.get("starts", []), "mutations": st.get("mutations", []),
+                "current": st.get("current"), "history": st.get("history", [])}
+    except (OSError, ValueError):
+        return {"nonces": [], "starts": [], "mutations": [], "current": None, "history": []}
+
+
+def save_state(st):
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, STATE)
+
+
+def run(argv, timeout):
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                          env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"})
+
+
+def container():
+    """{exists, running, started, finished, exit_code, args} of the generator container (fixed docker argv)."""
+    try:
+        p = run([DOCKER, "inspect", "-f", "{{.State.Running}}|{{.State.StartedAt}}|{{.State.FinishedAt}}|{{.State.ExitCode}}|{{json .Config.Cmd}}", NAME], 15)
+    except subprocess.TimeoutExpired:
+        return {"exists": None, "running": None, "error": "docker inspect timed out"}
+    if p.returncode != 0:
+        return {"exists": False, "running": False}
+    running, started, finished, code, cmd = p.stdout.strip().split("|", 4)
+    try:
+        args = json.loads(cmd)
+    except ValueError:
+        args = None
+    return {"exists": True, "running": running == "true", "started": started, "finished": finished,
+            "exit_code": int(code) if code.lstrip("-").isdigit() else None, "args": args if isinstance(args, list) else None}
+
+
+def public_presets():
+    return {k: {"duration_s": v[1], "max_rpm": v[2], "workloads": v[3]} for k, v in PRESETS.items()}
+
+
+def main():
+    raw = sys.stdin.readline(4096)
+    try:
+        req = json.loads(raw)
+        assert isinstance(req, dict)
+    except (ValueError, AssertionError):
+        log("REJECT malformed request")
+        reply({"ok": False, "error": "malformed request"})
+    key = open(KEY_FILE, "rb").read().strip()
+    if not hmac.compare_digest(hmac.new(key, canonical(req), hashlib.sha256).hexdigest(), str(req.get("mac", ""))):
+        log(f"REJECT bad mac action={str(req.get('action'))[:20]!r}")
+        reply({"ok": False, "error": "authentication failed"})
+    now = time.time()
+    if not isinstance(req.get("ts"), (int, float)) or abs(now - req["ts"]) > 60:
+        log("REJECT stale timestamp")
+        reply({"ok": False, "error": "stale request"})
+    lock = open(LOCK, "a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)            # one broker operation at a time
+    except OSError:
+        log("REJECT busy")
+        reply({"ok": False, "error": "another traffic generator operation is in progress"})
+    st = load_state()
+    nonce = str(req.get("nonce", ""))
+    if not re.fullmatch(r"[a-f0-9]{32}", nonce) or nonce in st["nonces"]:
+        log("REJECT nonce replay/invalid")
+        reply({"ok": False, "error": "replayed or invalid nonce"})
+    st["nonces"] = (st["nonces"] + [nonce])[-500:]
+    action = req.get("action")
+    if action == "ping":
+        save_state(st)
+        reply({"ok": True, "broker": "ap-trafficgen-broker", "version": 1, "presets": sorted(PRESETS)})
+    if action == "status":
+        save_state(st)
+        c = container()
+        cur = st["current"]
+        if cur and c.get("running") is False:                 # finished by duration / backstop since the last call
+            cur = {**cur, "ended": True}
+        reply({"ok": True, "container": c, "current": cur, "history": st["history"][-10:], "presets": public_presets(),
+               "limits": {"starts_per_hour": START_LIMIT, "mutations_per_10min": MUTATE_LIMIT}})
+    if action not in ("start", "stop"):
+        save_state(st)
+        log(f"REJECT action {str(action)[:20]!r}")
+        reply({"ok": False, "error": "action not permitted"})
+    by = str(req.get("by", ""))
+    if not BY_RE.fullmatch(by):
+        save_state(st)
+        log("REJECT invalid 'by'")
+        reply({"ok": False, "error": "invalid operator name"})
+    st["mutations"] = [t for t in st["mutations"] if now - t < MUTATE_WINDOW]
+    if len(st["mutations"]) >= MUTATE_LIMIT:
+        save_state(st)
+        log(f"REJECT rate limit action={action}")
+        reply({"ok": False, "error": f"rate limit: at most {MUTATE_LIMIT} operations per {MUTATE_WINDOW // 60} min"})
+    st["mutations"].append(now)
+    c = container()
+    if action == "start":
+        preset = req.get("preset")
+        if preset not in PRESETS:
+            save_state(st)
+            log(f"REJECT unknown preset {str(preset)[:40]!r}")
+            reply({"ok": False, "error": "unknown preset"})
+        st["starts"] = [t for t in st["starts"] if now - t < START_WINDOW]
+        if len(st["starts"]) >= START_LIMIT:
+            save_state(st)
+            log("REJECT start rate limit")
+            reply({"ok": False, "error": f"rate limit: at most {START_LIMIT} runs per hour"})
+        if c.get("running") is not False:
+            save_state(st)
+            log(f"REJECT start {preset} while running/unknown")
+            reply({"ok": False, "error": "a traffic generator run is already active" if c.get("running") else "generator state unknown"})
+        argv, dur, rpm, wl = PRESETS[preset]
+        log(f"EXEC start preset={preset} by={by!r}")
+        try:
+            p = run([CTL, *argv], 90)
+        except subprocess.TimeoutExpired:
+            save_state(st)
+            log(f"FAIL start {preset} timeout")
+            reply({"ok": False, "error": "traffic generator start timed out"})
+        ok = p.returncode == 0
+        rec = {"preset": preset, "by": by, "requested_at": now, "duration_s": dur, "max_rpm": rpm, "workloads": wl,
+               "outcome": "started" if ok else "start_failed", "rc": p.returncode}
+        if ok:
+            st["starts"].append(now)
+            if st["current"]:
+                st["history"] = (st["history"] + [st["current"]])[-20:]
+            st["current"] = rec
+        else:
+            st["history"] = (st["history"] + [rec])[-20:]
+        save_state(st)
+        msg = [ln for ln in (p.stdout + p.stderr).splitlines() if ln.startswith(("started", "ap-trafficgen:", "archived"))]
+        log(f"{'OK' if ok else 'FAIL'} start {preset} rc={p.returncode} {msg[-1][:160] if msg else ''}")
+        reply({"ok": ok, "rc": p.returncode, "preset": preset, "message": (msg[-1] if msg else "")[:200]})
+    # stop
+    if c.get("running") is not True:
+        save_state(st)
+        log(f"NOOP stop by={by!r} (not running)")
+        reply({"ok": True, "stopped": False, "message": "not running"})
+    log(f"EXEC stop by={by!r}")
+    t0 = time.time()
+    try:
+        p = run([CTL, "stop"], 100)
+        a = run([CTL, "archive"], 60)
+    except subprocess.TimeoutExpired:
+        save_state(st)
+        log("FAIL stop timeout")
+        reply({"ok": False, "error": "traffic generator stop timed out"})
+    ok = p.returncode == 0
+    elapsed = round(time.time() - t0, 1)
+    if st["current"]:
+        st["current"] = {**st["current"], "stopped_by": by, "stopped_at": time.time(), "outcome": "stopped" if ok else "stop_failed"}
+        st["history"] = (st["history"] + [st["current"]])[-20:]
+        st["current"] = None
+    save_state(st)
+    arch = [ln for ln in a.stdout.splitlines() if ln.startswith("archived")]
+    log(f"{'OK' if ok else 'FAIL'} stop rc={p.returncode} {elapsed}s {arch[-1] if arch else ''}")
+    reply({"ok": ok, "stopped": ok, "rc": p.returncode, "seconds": elapsed, "message": p.stdout.strip()[-160:], "archive": arch[-1] if arch else None})
+
+
+if __name__ == "__main__":
+    main()

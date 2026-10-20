@@ -1,0 +1,17 @@
+aplab.internal:53 {
+    bind 10.50.20.53 192.0.2.63
+    file /etc/coredns/db.aplab.internal {
+        reload 10s
+    }
+    transfer {
+        to 10.50.20.5 192.0.2.60
+    }
+    log
+    errors
+}
+.:53 {
+    bind 10.50.20.53 192.0.2.63
+    forward . 192.0.2.1
+    cache 30
+    errors
+}

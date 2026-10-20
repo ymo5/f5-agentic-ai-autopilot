@@ -1,0 +1,26 @@
+$ORIGIN aplab.internal.
+$TTL 60
+@               IN SOA  dns.aplab.internal. admin.aplab.internal. ( SERIAL 300 60 86400 60 )
+@               IN NS   dns.aplab.internal.
+dns             IN A    10.50.20.53
+; --- hosts (management) ---
+ap-autopilot-01 IN A    192.0.2.60
+ap-agent-a      IN A    192.0.2.61
+ap-agent-b      IN A    192.0.2.62
+ap-ai-services  IN A    192.0.2.63
+bigip-mgmt      IN A    192.0.2.16
+; --- AI agents (A2A) ---
+agent-a         IN A    10.50.10.21
+agent-b         IN A    10.50.10.22
+agent-b-svc     IN A    10.50.20.22
+; --- MCP services ---
+mcp-risk        IN A    10.50.20.31
+mcp-risk-1      IN A    10.50.20.31
+mcp-risk-2      IN A    10.50.20.32
+mcp-intel       IN A    10.50.20.33
+; --- data / model services ---
+qdrant          IN A    10.50.20.40
+rag             IN CNAME qdrant
+s3              IN A    10.50.20.41
+llm             IN A    10.50.20.45
+otel            IN A    10.50.20.63

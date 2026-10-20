@@ -1,0 +1,26 @@
+# AP-AGENT-B — Risk Assessment Agent (A2A server, MCP client, RAG via MCP, LLM).
+# BEFORE state (pre-BIG-IP): Agent Card advertises the direct address; MCP calls go straight to a
+# single risk-scoring replica. These are the conditions Autopilot is expected to discover.
+services:
+  agent-b:
+    # The guarded TLS installer persists this pin so profile changes cannot silently
+    # recreate Agent B from the pre-TLS base image. Delivery/Security only change env.
+    image: ${AGENT_B_IMAGE:-aplab-py:0.1}
+    build: {context: /opt/aplab/src, dockerfile: deploy/common/Dockerfile, network: host}
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "services.agent_b.agent"]
+    environment:
+      BIND_HOST: 0.0.0.0          # listens on agent0 10.50.10.22 and backend0 10.50.20.22; mgmt blocked by nftables
+      BIND_PORT: "9000"
+      A2A_PUBLIC_URL: ${A2A_PUBLIC_URL:-http://10.50.10.22:9000/}
+      MCP_RISK_URL: ${MCP_RISK_URL:-http://10.50.20.31:8000/mcp}
+      MCP_INTEL_URL: ${MCP_INTEL_URL:-http://10.50.20.33:8000/mcp}
+      MCP_CLIENT_MODE: ${MCP_CLIENT_MODE:-legacy}
+      MCP_CA_BUNDLE: ${MCP_CA_BUNDLE:-}       # set only by the delivery/security profiles
+      MCP_CLIENT_CERT: ${MCP_CLIENT_CERT:-}   # set only by the security profile (mTLS identity agent-b)
+      MCP_CLIENT_KEY: ${MCP_CLIENT_KEY:-}
+      LLM_BASE_URL: http://10.50.20.45:11434/v1
+      LLM_MODEL: qwen2.5:3b
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://192.0.2.63:4318
+    volumes: ["/opt/aplab/pki:/opt/aplab/pki:ro"]

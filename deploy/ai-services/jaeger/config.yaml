@@ -1,0 +1,34 @@
+service:
+  extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    metrics:
+      level: none
+extensions:
+  healthcheckv2:
+    use_v2: true
+    http: {endpoint: 127.0.0.1:13134}
+  jaeger_query:
+    storage:
+      traces: memstore
+    http: {endpoint: 192.0.2.63:16686}
+    grpc: {endpoint: 127.0.0.1:16685}
+  jaeger_storage:
+    backends:
+      memstore:
+        memory:
+          max_traces: 200000
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: 127.0.0.1:14317}
+      http: {endpoint: 127.0.0.1:14318}
+processors:
+  batch: {}
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memstore
