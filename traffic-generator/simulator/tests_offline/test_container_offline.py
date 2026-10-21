@@ -10,7 +10,6 @@ CONT = os.path.join(ROOT, "container")
 sys.path.insert(0, CONT)
 import trafficgen_entry as entry                         # noqa: E402
 
-BUILD_ROOT = os.path.expanduser("~/f5-ai-integration-dev/build-verify")
 
 
 def read(name):
@@ -110,11 +109,20 @@ class ControlScript(unittest.TestCase):
 
 
 class Build(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="tg-build-")      # isolated: never a developer or lab directory
+        self.addCleanup(self.tmp.cleanup)
+
+    def _build(self, out):
+        p = subprocess.run(["bash", os.path.join(CONT, "build.sh"), out], capture_output=True, text=True)
+        if p.returncode != 0:
+            self.fail(f"build.sh exited {p.returncode}\n--- stdout ---\n{p.stdout}\n--- stderr ---\n{p.stderr}")
+        return p
+
     def test_deterministic_and_minimal(self):
-        os.makedirs(BUILD_ROOT, exist_ok=True)
-        a, b = tempfile.mkdtemp(prefix="tg-build-a-", dir=BUILD_ROOT), tempfile.mkdtemp(prefix="tg-build-b-", dir=BUILD_ROOT)
+        a, b = os.path.join(self.tmp.name, "a"), os.path.join(self.tmp.name, "b")
         for d in (a, b):
-            subprocess.run(["bash", os.path.join(CONT, "build.sh"), d], check=True, capture_output=True)
+            self._build(d)
         ids = [open(os.path.join(d, "BUILD_ID")).read().strip() for d in (a, b)]
         self.assertEqual(ids[0], ids[1])
         tgz = [hashlib.sha256(open(os.path.join(d, "ap-trafficgen-context.tgz"), "rb").read()).hexdigest() for d in (a, b)]
@@ -124,7 +132,18 @@ class Build(unittest.TestCase):
                                         "simulator/mcp_adapter.py", "simulator/profiles/project-a.json", "simulator/sim_profiles.py",
                                         "simulator/sim_transport.py"]))
         p = subprocess.run(["bash", os.path.join(CONT, "build.sh"), a], capture_output=True, text=True)
-        self.assertNotEqual(p.returncode, 0); self.assertIn("not empty", p.stdout)
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr); self.assertIn("not empty", p.stdout)
+
+    def test_archive_entries_are_owned_by_root_with_fixed_modes(self):
+        import tarfile
+        out = os.path.join(self.tmp.name, "o")
+        self._build(out)
+        with tarfile.open(os.path.join(out, "ap-trafficgen-context.tgz")) as t:
+            members = t.getmembers()
+        self.assertTrue(members)
+        for m in members:
+            self.assertEqual((m.uid, m.gid), (0, 0), m.name)
+            self.assertEqual(m.mode & 0o777, 0o644, m.name)
 
 
 if __name__ == "__main__":

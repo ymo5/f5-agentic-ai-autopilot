@@ -10,7 +10,9 @@ FILES="simulator/f5_ai_workload_sim.py simulator/sim_profiles.py simulator/sim_t
 simulator/profiles/project-a.json container/trafficgen_entry.py container/Dockerfile"
 mkdir -p "$OUT/context"; chmod 700 "$OUT"
 for f in $FILES; do mkdir -p "$OUT/context/$(dirname "$f")"; cp "$ROOT/$f" "$OUT/context/$f"; chmod 644 "$OUT/context/$f"; touch -t 197001010000 "$OUT/context/$f"; done
-COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 -cf - -C "$OUT/context" $FILES | gzip -n > "$OUT/ap-trafficgen-context.tgz"
+# Ownership is normalised to 0:0 with the flags of the tar in use (GNU tar: --owner/--group; bsdtar/macOS: --uid/--gid).
+if tar --version 2>/dev/null | grep -q "GNU tar"; then OWN=(--owner=0 --group=0 --numeric-owner); else OWN=(--uid 0 --gid 0); fi
+COPYFILE_DISABLE=1 tar --format ustar "${OWN[@]}" -cf - -C "$OUT/context" $FILES | gzip -n > "$OUT/ap-trafficgen-context.tgz"
 (cd "$OUT/context" && sha $FILES) > "$OUT/CONTEXT.sha256"
 for f in ap-trafficgen install.sh rollback.sh; do cp "$ROOT/container/$f" "$OUT/$f"; chmod 700 "$OUT/$f"; done
 ID=$(cat "$OUT/CONTEXT.sha256" "$OUT/ap-trafficgen" "$OUT/install.sh" "$OUT/rollback.sh" | sha | cut -c1-12)
